@@ -1,0 +1,8 @@
+﻿{
+    "appVersion":  "1.1.0",
+    "appUrl":  "https://cdn.example.com/tunnelwind/TunnelWind_1.1.0.exe",
+    "appSha256":  "9BAD6143412B5ACC2F72617BE7DC169CE3B5ADAFA01686D8C23260A124C1B997",
+    "engineUrl":  "https://cdn.example.com/tunnelwind/psiphon-tunnel-core.exe",
+    "engineSha256":  "2EDA700D3D5723F6C792718A5B7CFE5D35A9888168B539EF042312805A1D2E02",
+    "notes":  "Tunnel Wind v1.1.0"
+}

@@ -1,0 +1,62 @@
+TunnelWind — extraction provenance log
+======================================
+
+Source: "VPN PROJECT\psiphon3.exe"
+  sha256: 87dcd5d8787d719426c585020f06bee864abccb991f0bf79913c726fabc8ed2d
+  UPX-packed; unpacked with UPX 5.0.2 →
+
+psiphon3_unpacked.exe
+  sha256: a35a77b2a6070778941c1a77c81ccb705e2932fa84ff0eb8beafbbcd82071de2
+  PE32 x86, sections: .text 1.29MB, .rsrc 31.7MB (resource table at VA 0x53e000/file 0x1D9200)
+
+extracted\id131.bin  = RCDATA resource #131  →  psiphon-tunnel-core.exe (engine)
+  sha256: 2eda700d3d5723f6c792718a5b7cfe5d35a9888168b539ef042312805a1d2e02
+  Go 1.26.5, GOARCH=386, GOOS=windows, CGO_ENABLED=1 (i686-w64-mingw32)
+  module: github.com/Psiphon-Labs/psiphon-tunnel-core/ConsoleClient (devel)
+  rev: 24b8381cc39e53c85c38818405769cb6591b6c07  (buildDate 2026-07-23T19:15:13+00:00)
+  tags: PSIPHON_INIT_COMMON_VALUES, PSIPHON_ENABLE_INPROXY, PSIPHON_ENABLE_REFRACTION_NETWORKING
+
+extracted\id132.bin  = RCDATA resource #132  →  polipo.exe (HTTP proxy shim; NOT used by TunnelWind)
+  sha256: 557771cbc3fbc81565cb3099262adddf63d5ec8f8ad499a2152ae605c05369df
+  C, Win32, built from C:\Users\Adam\Code\psiphon\polipo\Release\polipo.pdb
+
+extracted\MAIN.HTML  = RCDATA "MAIN.HTML" (web UI shown inside Internet Explorer_Server)
+  3,109,136 bytes
+
+extracted\embedded_server_entry.txt
+  Embedded bootstrap server entry (legacy encoded_server_list format: "0 0 0 0 " + lowercase?? hex):
+  raw 2790 hex chars from file offset 1396168 (VA 0x5561C8) in psiphon3_unpacked.exe
+  decodes to: "0 0 0 0 " + uppercase hex of one JSON server-entry containing:
+    capabilities: ssh-api-requests, SSH, OSSH, UNFRONTED-MEEK, QUIC, INPROXY-WEBRTC-SSH
+    ipAddress 154.21.146.115, region CA, sshPort 22, sshObfuscatedPort 23,
+    meekServerPort 80, inproxySSHPort 21, providerID 1E9F53D88A07EDCC
+  (server bootstrap data as shipped to every Psiphon user)
+
+extracted\additional_parameters.txt
+  10,200-char base64 blob at VA 0x599C08 (AdditionalParameters value; opaque runtime
+  parameter passed verbatim by the original launcher). Not forwarded by TunnelWind v1.
+
+Launcher config builder (FUN_00444076, Ghidra decompilation ev_74d0351e… / ev_74d035…):
+  ClientPlatform            (computed)
+  ClientVersion             "189"  (packed-version integer, VA 0x5561C8 = C string)
+  PropagationChannelId      "92AACC5BABE0944C"
+  SponsorId                 "1BC527D3D09985CF"
+  RemoteServerListURLs      [{URL b64(s3.amazonaws.com/psiphon/web/mjr4-p23r-puwl/server_list_compressed)}, raceeggxdas, blogsfmcancercitizen, sysstemafariuniversitydebt]
+  ObfuscatedServerListRootURLs  [s3 …/osl mirrors + lockglobeaccountingcl/nwdbugugnewslattergeteway/feedswhichbargainfix (fastly)]
+  RemoteServerListSignaturePublicKey "sHuUVTWaRyh5pZwy4UguSgkwmBe0EHtJJkoF5WrxmvA="
+  ServerEntrySignaturePublicKey       (RSA-3072 SPKI base64, 732 chars; verified byte-identical in bootstrap.cs)
+  FeedbackUploadURLs        [b64"https://s3.amazonaws.com/psiupload/"]
+  FeedbackEncryptionPublicKey (RSA-3072 SPKI base64, 732 chars; verified byte-identical)
+  UpgradeDownloadURLs       [b64"https://s3.amazonaws.com/psiphon/web/mjr4-p23r-puwl/psiphon3.exe.upgrade"]
+  UpgradeDownloadClientVersionHeader  "x-amz-meta-psiphon-client-version"
+  AdditionalParameters      &DAT_00599C08 (opaque base64 blob)
+  … plus runtime keys: DataRootDirectory, EgressRegion, LocalHttpProxyPort,
+    LocalSocksProxyPort, UseIndistinguishableTLS, EmitDiagnosticNotices,
+    EmitDiagnosticNetworkParameters, EmitServerAlerts, SplitTunnelOwnRegion,
+    SplitTunnelRegions, UpstreamProxyUrl, Authorizations, NetworkID (random per run),
+    ListenInterface ("0.0.0.0" when exposing local proxies to LAN).
+
+Engine spawn (CoreTransport::SpawnCoreProcess, decompiled FUN_00426c1e):
+  %TEMP% up to 5 unique temp filenames → extract resource 131 or 132 → spawn with
+  stdin/stdout pipes → config JSON on stdin, notice lines on stdout ("no config provided"
+  is the engine's own init error, proving the pipe contract).

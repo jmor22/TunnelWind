@@ -1,0 +1,32 @@
+# ---- Psiphon distribution artifacts (never redistribute) ----
+psiphon3.exe
+psiphon3_unpacked.exe
+*.exe.upgrade
+
+# engine + extraction payloads
+extracted/
+engine/
+
+# build outputs
+output/
+output-arm64/
+enginetest/
+release/
+update/stage/
+*.zip
+
+# portable SDK
+tools/dotnet/
+tools/dotnet-sdk.zip
+
+# .NET build artifacts
+bin/
+obj/
+[Bb]uild[Ll]og.*
+
+# IDE / OS junk
+.vs/
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
