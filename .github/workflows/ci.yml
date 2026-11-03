@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        rid: [win-x64, win-arm64]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: restore
+        run: dotnet restore TunnelWind/src/TunnelWind.App/TunnelWind.App.csproj -r ${{ matrix.rid }}
+
+      - name: build
+        run: dotnet build TunnelWind/src/TunnelWind.App/TunnelWind.App.csproj -c Release -r ${{ matrix.rid }} --no-restore
+
+      - name: publish
+        run: dotnet publish TunnelWind/src/TunnelWind.App/TunnelWind.App.csproj -c Release -f net8.0-windows -r ${{ matrix.rid }} --self-contained false -o publish-${{ matrix.rid }}
+
+      - name: package (app only; engine is acquired locally by refresh-engine.ps1)
+        shell: pwsh
+        run: |
+          if (Test-Path publish-${{ matrix.rid }}\engine) { Remove-Item -Recurse -Force publish-${{ matrix.rid }}\engine }
+          Compress-Archive -Path publish-${{ matrix.rid }}\* -DestinationPath "TunnelWind_${{ matrix.rid }}.zip"
+
+      - name: upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tunnelwind-${{ matrix.rid }}
+          path: TunnelWind_${{ matrix.rid }}.zip

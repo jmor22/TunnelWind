@@ -21,8 +21,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="..\..\engine\psiphon-tunnel-core.exe" Link="engine\psiphon-tunnel-core.exe">
+    <Content Include="..\..\engine\*.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>engine\%(Filename)%(Extension)</Link>
     </Content>
   </ItemGroup>
 

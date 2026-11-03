@@ -1,0 +1,53 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: read version from Identity.cs
+        id: ver
+        shell: pwsh
+        run: |
+          $m = Select-String -Path TunnelWind/src/TunnelWind.Core/Identity.cs -Pattern 'AppVersion\s*=\s*"([^"]+)"'
+          "ver=$($m.Matches[0].Groups[1].Value)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: publish win-x64
+        run: dotnet publish TunnelWind/src/TunnelWind.App/TunnelWind.App.csproj -c Release -f net8.0-windows -r win-x64 --self-contained false -o publish-x64
+
+      - name: publish win-arm64
+        run: dotnet publish TunnelWind/src/TunnelWind.App/TunnelWind.App.csproj -c Release -f net8.0-windows -r win-arm64 --self-contained false -o publish-arm64
+
+      - name: package (engine excluded - users acquire it via update/refresh-engine.ps1)
+        shell: pwsh
+        run: |
+          foreach ($rid in 'x64','arm64') {
+            if (Test-Path "publish-$rid\engine") { Remove-Item -Recurse -Force "publish-$rid\engine" }
+            Compress-Archive -Path "publish-$rid\*" -DestinationPath "TunnelWind_${{ steps.ver.outputs.ver }}_win-$rid.zip"
+          }
+          Get-FileHash TunnelWind_${{ steps.ver.outputs.ver }}_win-*.zip -Algorithm SHA256 |
+            Format-Table -AutoSize | Out-String | Set-Content hashes.txt
+
+      - name: create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Tunnel Wind ${{ steps.ver.outputs.ver }}"
+          body_path: hashes.txt
+          files: |
+            TunnelWind_*_win-x64.zip
+            TunnelWind_*_win-arm64.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
