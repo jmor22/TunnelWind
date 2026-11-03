@@ -13,6 +13,17 @@ psiphon3.new.exe
 psiphon3.*.exe
 engine.fresh131.bin
 
+# android toolchain + mobile build outputs
+tools/android/
+tools/gradle*.zip
+tools/gradle-8.10.2/
+tools/gh/
+TunnelWind/mobile/build/
+TunnelWind/mobile/.gradle/
+TunnelWind/mobile/local.properties
+TunnelWind/mobile/app/libs/*.aar
+*.apk
+
 # app build output
 TunnelWind/output/
 TunnelWind/output-arm64/
@@ -39,3 +50,7 @@ desktop.ini
 
 # gh CLI auth material (never commit)
 tools/gh/token.txt
+TunnelWind/mobile/libs/aar-inside/
+TunnelWind/mobile/release/
+TunnelWind/mobile/.gradle/
+TunnelWind/mobile/app/build/

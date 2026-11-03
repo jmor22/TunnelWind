@@ -1,0 +1,5 @@
+﻿<resources>
+    <string name="app_name">Tunnel Wind</string>
+    <string name="notif_title">Tunnel Wind</string>
+    <string name="notif_body">VPN tunnel active</string>
+</resources>

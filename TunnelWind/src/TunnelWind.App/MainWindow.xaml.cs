@@ -82,7 +82,7 @@ public partial class MainWindow : Window
             }
             var enginePath = _tunnel.EnsureEngine(engineSrc);
             AppendLog($"[engine] ready: {enginePath}");
-            var check = EngineIntegrity.Verify(enginePath);
+            var check = EngineIntegrity.Verify(engineSrc, enginePath);
             AppendLog(check.Message);
             _integrityOk = check.Ok;
 
@@ -108,8 +108,11 @@ public partial class MainWindow : Window
     {
         if (!_integrityOk)
         {
-            var check = EngineIntegrity.Verify(IoPath.Combine(
-                AppDomain.CurrentDomain.BaseDirectory, "engine", "psiphon-tunnel-core.exe"));
+            var bundled = IoPath.Combine(AppDomain.CurrentDomain.BaseDirectory, "engine", "psiphon-tunnel-core.exe");
+            var local = IoPath.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "TunnelWind", "psiphon-tunnel-core.exe");
+            var check = EngineIntegrity.Verify(bundled, local);
             AppendLog(check.Message);
             if (!check.Ok)
             {

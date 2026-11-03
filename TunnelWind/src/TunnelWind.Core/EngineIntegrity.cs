@@ -4,12 +4,12 @@ using System.Text;
 namespace TunnelWind.Core;
 
 /// <summary>
-/// Engine binary integrity check.
-/// First run: records the engine's SHA-256 into engine.sha256 (pin file) next to it.
-/// Later runs: verify match; a mismatch blocks connect (corruption/tamper protection).
-/// The pin file also records the app/engine pairing, so replacing the engine requires
-/// deleting the pin (visible, auditable action — mirrors the original client's upgrade
-/// signature-verification posture, but simpler and self-contained).
+/// Engine binary integrity check (single source of truth).
+///  1. hash the app-bundled engine and the LocalAppData engine;
+///  2. if they differ BUT the pin matches the bundled hash, the LocalAppData copy
+///     was clobbered by an older build - re-sync from the bundle (self-heal);
+///  3. pass when LocalAppData hash == pin (re-pinning on first run);
+///  4. fail when the pin matches neither (external tamper/corruption).
 /// </summary>
 public static class EngineIntegrity
 {
@@ -17,42 +17,64 @@ public static class EngineIntegrity
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "TunnelWind", "engine.sha256");
 
-    public static string PinFile(string enginePath) =>
-        "TUNNELWIND-ENGINE-PIN v1\n" + HashFile(enginePath) + "\n";
-
     public static string HashFile(string path)
     {
         using var sha = SHA256.Create();
         using var stream = File.OpenRead(path);
-        var hash = sha.ComputeHash(stream);
         var sb = new StringBuilder(64);
-        foreach (var b in hash) sb.Append(b.ToString("x2"));
+        foreach (var b in sha.ComputeHash(stream)) sb.Append(b.ToString("x2"));
         return sb.ToString();
     }
 
-    /// <summary>Returns (ok, message). When ok and pin created now, message says "pinned".</summary>
-    public static (bool Ok, string Message) Verify(string enginePath)
+    /// <summary>Returns (ok, message).</summary>
+    public static (bool Ok, string Message) Verify(string bundledEnginePath, string localEnginePath)
     {
-        var actual = HashFile(enginePath);
+        if (!File.Exists(bundledEnginePath))
+            return (false, "[engine] bundled engine missing: " + bundledEnginePath);
+
+        var bundledHash = HashFile(bundledEnginePath);
+        var localHash = File.Exists(localEnginePath) ? HashFile(localEnginePath) : null;
+
         var pinFile = PinPath;
-        if (!File.Exists(pinFile))
+        string? pin = File.Exists(pinFile) ? File.ReadAllText(pinFile).Trim() : null;
+
+        // first run: pin whatever we just installed
+        if (string.IsNullOrEmpty(pin))
         {
+            var firstHash = localHash ?? bundledHash;
             try
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(pinFile)!);
-                File.WriteAllText(pinFile, actual + "\n");
+                File.WriteAllText(pinFile, firstHash + "\n");
             }
             catch
             {
                 return (true, "[engine] pin file could not be created (continuing)");
             }
-            return (true, "[engine] integrity pinned: " + actual);
+            return (true, "[engine] integrity pinned: " + firstHash);
         }
-        var stored = File.ReadAllText(pinFile).Trim();
-        if (stored.Equals(actual, StringComparison.OrdinalIgnoreCase))
+
+        // self-heal: LocalAppData clobbered by an older/newer bundle copy while the
+        // pin still matches the app's bundled engine
+        if (localHash != null &&
+            !string.Equals(localHash, bundledHash, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(pin, bundledHash, StringComparison.OrdinalIgnoreCase))
         {
-            return (true, "[engine] integrity OK");
+            try
+            {
+                File.Copy(bundledEnginePath, localEnginePath, overwrite: true);
+                return (true, "[engine] engine re-synced from app bundle (pin matched bundle)");
+            }
+            catch (Exception e)
+            {
+                return (false, "[engine] re-sync failed: " + e.Message);
+            }
         }
+
+        var effective = localHash ?? bundledHash;
+        if (string.Equals(effective, pin, StringComparison.OrdinalIgnoreCase))
+            return (true, "[engine] integrity OK");
+
         return (false, "[engine] INTEGRITY CHECK FAILED: engine binary hash does not match the pin record.");
     }
 }
