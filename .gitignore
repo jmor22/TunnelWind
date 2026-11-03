@@ -6,6 +6,12 @@ psiphon3_unpacked.exe
 # engine + extraction payloads
 extracted/
 engine/
+*.exe.upgrade
+psiphon3*.exe
+psiphon3.upgrade.bin
+psiphon3.new.exe
+psiphon3.*.exe
+engine.fresh131.bin
 
 # app build output
 TunnelWind/output/
