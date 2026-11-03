@@ -79,6 +79,39 @@ Runtime prerequisites are already inside the portable bundle; no system installs
 2. Press **CONNECT**; the log walks you through every engine stage.
 3. When disconnected (or issues), tray → Exit restores your system proxy from backup.
 
+## Android client (`TunnelWind/mobile`)
+
+<p align="center">
+  <img src="docs/mobile-connected.png" width="300" />
+</p>
+
+A native Kotlin/Compose VpnService client around the **official Psiphon Android
+library** (`psiphontunnel`, engine `psiphon-tunnel-core` c4a09096ab / v2.0.42).
+It calls the Go binding (`psi.Psi.start`) directly instead of the Java wrapper,
+which gives full control over bootstrap and provider callbacks.
+
+| Area | Detail |
+|---|---|
+| Bootstrap | Downloads `server_list_compressed` over direct internet **before** the tun exists, zlib-inflates it and passes the hex entry list as `embeddedServerEntryList` — the engine's own fetch fails on-device exactly like on Windows |
+| DNS | Real uplink resolvers are captured before the tun hides them and handed to the engine (`GetDNSServersAsString`); the tun itself advertises the official transparent-DNS router address |
+| Tun | Official Psiphon addressing scheme: private subnet with a **different** DNS address (e.g. `172.16.0.1/12`, DNS `172.16.0.2`) so DNS packets actually enter the tunnel |
+| Engine sockets | `useDeviceBinder=true` → engine calls `bindToDevice`, host answers `VpnService.protect()`; mandatory in VPN mode |
+| UI | Compose: connect card, live status, traffic counters, region chips from `AvailableEgressRegions`, split-tunnel-by-own-region toggle, connection log |
+| Resilience | 180 s connect watchdog (auto-disconnect restores internet), battery-optimisation exemption request, crash log persisted for the next launch |
+
+Built and verified on a Galaxy S21 FE (Android 16): 429 server entries imported,
+21 egress regions, real protocol dials (SSH/OSSH/TLS/QUIC/meek/WebRTC),
+`Tunnels{count:1}`, working DNS + browsing through the tunnel.
+
+**Build** (the engine AAR is *not* in this repo — drop your own
+`psiphontunnel-2.0.42.aar` into `TunnelWind/mobile/libs/`):
+
+```
+cd TunnelWind/mobile
+gradle :app:assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
 ## Security notes
 
 * The system proxy is flipped on only when the tunnel is up. Every Prepare → Apply

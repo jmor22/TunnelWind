@@ -71,3 +71,6 @@ TunnelWind/mobile/release/
 # downloaded engine source used during analysis
 tools/*.go
 tools/*.java
+
+# local toolchain (adb, gradle, dotnet, gh) - never commit
+tools/
