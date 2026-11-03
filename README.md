@@ -44,6 +44,12 @@ every part around it in clean, auditable code.
 
 ## Layout
 
+> **Releases:** prebuilt `v1.1.2` app packages (x64 + ARM64, framework-dependent) live at
+> <https://github.com/jmor22/TunnelWind/releases/tag/v1.1.2>. The engine is **not** shipped in
+> releases — obtain your own legitimate copy of Psiphon and run
+> [`TunnelWind/update/refresh-engine.ps1`](TunnelWind/update/refresh-engine.ps1) to extract and
+> install the engine locally (it also pins and verifies the hash every time).
+
 ```
 TunnelWind/
   src/TunnelWind.Code/          # core library (engine, config, proxy, update, integrity)
