@@ -12,8 +12,8 @@ android {
         applicationId = "com.tunnelwind.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "1.2.3"
+        versionCode = 22
+        versionName = "1.8.0"
     }
 
     buildTypes {

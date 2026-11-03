@@ -65,7 +65,24 @@ class MainActivity : ComponentActivity() {
         if (crashes.isNotEmpty()) {
             TunnelState.log("[prev-crash] " + crashes.take(12).joinToString(" | ").take(900))
         }
+        // Samsung/Android aggressively freeze background apps; without this the
+        // system can kill the VPN process while browsing in another app.
+        requestBatteryExemptionOnce()
         setContent { TunnelWindUi(::connectPressed, ::stopPressed) }
+    }
+
+    private fun requestBatteryExemptionOnce() {
+        try {
+            val pm = getSystemService(POWER_SERVICE) as android.os.PowerManager
+            if (pm.isIgnoringBatteryOptimizations(packageName)) return
+            val prefs = getSharedPreferences("tw", MODE_PRIVATE)
+            if (prefs.getBoolean("asked_battery", false)) return
+            prefs.edit().putBoolean("asked_battery", true).apply()
+            startActivity(
+                Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                    .setData(android.net.Uri.parse("package:" + packageName))
+            )
+        } catch (_: Throwable) { }
     }
 
     private fun connectPressed() {
@@ -88,12 +105,6 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun TunnelWindUi(onConnect: () -> Unit, onStop: () -> Unit) {
-    var tick by remember { mutableIntStateOf(0) }
-    DisposableEffect(Unit) {
-        val l: () -> Unit = { tick++ }
-        TunnelState.addListener(l)
-        onDispose { TunnelState.removeListener(l) }
-    }
 
     Surface(color = Bg, modifier = Modifier.fillMaxSize()) {
         Column(
@@ -101,12 +112,14 @@ fun TunnelWindUi(onConnect: () -> Unit, onStop: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Header()
-            ConnectCard(tick, onConnect, onStop)
-            StatusCard(tick)
-            RegionCard(tick)
-            SplitTunnelCard(tick)
-            LogCard()
-            Footer(tick)
+            ConnectCard(onConnect, onStop)
+            StatusCard()
+            RegionCard()
+            SplitTunnelCard()
+            // pass logs as a parameter: a parameterless composable is skipped by
+            // Compose on recomposition, so the log card would only refresh after
+            // a full activity recreation (the "log empty until relaunch" bug)
+            LogCard(TunnelState.logs)
             Spacer(Modifier.height(24.dp))
         }
     }
@@ -118,13 +131,13 @@ private fun Header() {
         Text("Tunnel Wind", color = TextCol, fontSize = 22.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.width(10.dp))
         Surface(color = Field, shape = RoundedCornerShape(6.dp)) {
-            Text("v1.2.1", color = Dim, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+            Text("v1.8.0", color = Dim, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
         }
     }
 }
 
 @Composable
-private fun ConnectCard(tick: Int, onConnect: () -> Unit, onStop: () -> Unit) {
+private fun ConnectCard(onConnect: () -> Unit, onStop: () -> Unit) {
     val phase = TunnelState.phase
     val connected = phase == TunnelState.Phase.Connected
     val starting  = phase == TunnelState.Phase.Starting
@@ -164,12 +177,12 @@ private fun ConnectCard(tick: Int, onConnect: () -> Unit, onStop: () -> Unit) {
 }
 
 @Composable
-private fun StatusCard(tick: Int) {
+private fun StatusCard() {
     val s = TunnelState
     Surface(color = Panel, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("â—", color = statusDotColor(s), fontSize = 14.sp)
+                Text("\u25CF", color = statusDotColor(s), fontSize = 14.sp)
                 Spacer(Modifier.width(8.dp))
                 Text(statusLabel(s), color = TextCol, fontSize = 15.sp, fontWeight = FontWeight.Medium)
             }
@@ -207,7 +220,7 @@ private fun statusLabel(s: TunnelState): String = when (s.phase) {
 }
 
 @Composable
-private fun RegionCard(tick: Int) {
+private fun RegionCard() {
     Surface(color = Panel, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -273,13 +286,21 @@ private fun FlowChips() {
 private fun LocalContextCurrent(): android.content.Context = androidx.compose.ui.platform.LocalContext.current
 
 @Composable
-private fun SplitTunnelCard(tick: Int) {
+private fun SplitTunnelCard() {
     Surface(color = Panel, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("SPLIT TUNNEL", color = Dim, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.weight(1f))
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable {
+                            TunnelState.update { bypassOwnRegion = !bypassOwnRegion }
+                        }
+                        .padding(4.dp)
+                ) {
                     Checkbox(
                         checked = TunnelState.bypassOwnRegion,
                         onCheckedChange = { TunnelState.update { bypassOwnRegion = it } }
@@ -293,18 +314,20 @@ private fun SplitTunnelCard(tick: Int) {
 }
 
 @Composable
-private fun LogCard() {
+private fun LogCard(logs: List<String>) {
     Surface(color = Panel, shape = RoundedCornerShape(12.dp), modifier = Modifier
         .fillMaxWidth().height(240.dp)) {
         SelectionContainer {
             Column(Modifier.padding(10.dp)) {
                 Text("Connection Log", color = Dim, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(6.dp))
+                // Only the newest lines: the card has a fixed height, so rendering
+                // 60 lines just clipped them out of view (the "log looks empty" bug).
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    TunnelState.logs.takeLast(60).forEach { line ->
+                    logs.takeLast(12).forEach { line ->
                         Text(line, color = Dim, fontSize = 10.5.sp,
                             fontFamily = FontFamily.Monospace,
-                            maxLines = 3, overflow = TextOverflow.Ellipsis)
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
@@ -312,19 +335,6 @@ private fun LogCard() {
     }
 }
 
-@Composable
-private fun Footer(tick: Int) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(checked = remember { mutableStateOf(true) }.value, onCheckedChange = { })
-            Text("System proxy", color = Dim, fontSize = 12.sp)
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(checked = remember { mutableStateOf(false) }.value, onCheckedChange = { })
-            Text("Auto-connect at launch", color = Dim, fontSize = 12.sp)
-        }
-    }
-}
 
 private fun fmt(bytes: Long): String {
     val units = arrayOf("B", "KB", "MB", "GB", "TB")

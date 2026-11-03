@@ -54,3 +54,20 @@ TunnelWind/mobile/libs/aar-inside/
 TunnelWind/mobile/release/
 TunnelWind/mobile/.gradle/
 TunnelWind/mobile/app/build/
+# ---- Android engine SDK (44 MB, never commit) ----
+TunnelWind/mobile/libs/
+TunnelWind/mobile/app/libs/
+*.aar
+*.so
+*.jar
+*.apk
+*.aab
+
+# mobile build/test artifacts
+TunnelWind/mobile/.gradle/
+TunnelWind/mobile/**/build/
+TunnelWind/mobile/release/
+
+# downloaded engine source used during analysis
+tools/*.go
+tools/*.java
