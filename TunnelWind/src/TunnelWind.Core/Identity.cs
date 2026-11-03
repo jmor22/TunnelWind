@@ -10,5 +10,5 @@ public static class Identity
     public static string ClientPlatform = "windows";
     public static string ClientVersion = "100";     // engine-side client version (integer, per engine contract)
     public static string ClientName = "TunnelWind";
-    public static string AppVersion = "1.1.1";      // UI/update-channel version
+    public static string AppVersion = "1.1.2";      // UI/update-channel version
 }

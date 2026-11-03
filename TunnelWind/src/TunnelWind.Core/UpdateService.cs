@@ -1,8 +1,10 @@
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Thread = System.Threading.Thread;
 
 namespace TunnelWind.Core;
 
@@ -40,7 +42,7 @@ public static class UpdateService
 {
     public static string AppDirectory => AppDomain.CurrentDomain.BaseDirectory;
     public static string AppExePath => Path.Combine(AppDirectory, "TunnelWind.exe");
-    public static string NewAppPath => Path.Combine(AppDirectory, "TunnelWind.new");
+    public static string NewPackagePath => Path.Combine(AppDirectory, "TunnelWind.update.zip");
     public static string OldAppPath => Path.Combine(AppDirectory, "TunnelWind.exe.old");
 
     public static string CurrentAppVersion =>
@@ -113,7 +115,7 @@ public static class UpdateService
         }
     }
 
-    /// <summary>Downloads the new app into AppDirectory as TunnelWind.new (verified).</summary>
+    /// <summary>Downloads the app package (whole-folder ZIP) into AppDirectory as TunnelWind.update.zip (verified).</summary>
     public static async Task PrepareAppUpdateAsync(UpdateManifest manifest, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(manifest.AppUrl) ||
@@ -121,45 +123,98 @@ public static class UpdateService
         {
             throw new InvalidOperationException("manifest has no app package");
         }
-        try { File.Delete(NewAppPath); } catch { }
-        await DownloadToAsync(manifest.AppUrl, NewAppPath, ct).ConfigureAwait(false);
-        var hash = Sha256File(NewAppPath);
+        try { File.Delete(NewPackagePath); } catch { }
+        await DownloadToAsync(manifest.AppUrl, NewPackagePath, ct).ConfigureAwait(false);
+        var hash = Sha256File(NewPackagePath);
         if (!hash.Equals(manifest.AppSha256.Trim(), StringComparison.OrdinalIgnoreCase))
         {
-            try { File.Delete(NewAppPath); } catch { }
+            try { File.Delete(NewPackagePath); } catch { }
             throw new InvalidOperationException($"app hash mismatch: expected {manifest.AppSha256}, got {hash}");
         }
     }
 
     /// <summary>
-    /// Atomically swaps TunnelWind.new in place of the running exe and returns
-    /// the path to launch (the same TunnelWind.exe path, now the new binary).
+    /// Atomically-ish swaps the prepared update ZIP in place of the running app and
+    /// launches it with retry (the first attempt can lose the single-instance mutex
+    /// race against the still-exiting old instance).
     /// Call right before Application exit.
     /// </summary>
     public static string ApplyAppSwap()
     {
-        if (!File.Exists(NewAppPath)) throw new InvalidOperationException("no prepared update package");
+        if (!File.Exists(NewPackagePath))
+        {
+            throw new InvalidOperationException("no prepared update package");
+        }
 
         try { File.Delete(OldAppPath); } catch { }
 
         // running exe may be renamed on Windows
         File.Move(AppExePath, OldAppPath, overwrite: true);
-        File.Move(NewAppPath, AppExePath, overwrite: false);
-
-        // best effort: launch the new version
-        Process.Start(new ProcessStartInfo
+        try
         {
-            FileName = AppExePath,
-            UseShellExecute = true,
-            WorkingDirectory = AppDirectory,
-        });
+            // folder swap: extract all app files overwriting existing ones
+            // (instance ExtractToDirectory throws on existing entries; the static
+            //  ZipFile API has the overwrite flag in .NET 8)
+            System.IO.Compression.ZipFile.ExtractToDirectory(NewPackagePath, AppDirectory, overwriteFiles: true);
+        }
+        catch
+        {
+            // rollback so we can still recover
+            if (!File.Exists(AppExePath)) File.Move(OldAppPath, AppExePath, overwrite: false);
+            throw;
+        }
+        finally
+        {
+            try { File.Delete(NewPackagePath); } catch { }
+        }
+
+        LaunchWithRetry();
         return AppExePath;
+    }
+
+    private static void LaunchWithRetry(int attempts = 6)
+    {
+        for (int i = 0; i < attempts; i++)
+        {
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = AppExePath,
+                    UseShellExecute = true,
+                    WorkingDirectory = AppDirectory,
+                };
+                var proc = Process.Start(psi);
+                if (proc != null)
+                {
+                    // confirm it survives startup (mutex race / crash detection)
+                    Thread.Sleep(1200);
+                    proc.Refresh();
+                    if (proc.HasExited)
+                    {
+                        var code = proc.ExitCode;
+                        if (i < attempts - 1) { Thread.Sleep(500); continue; }
+                        throw new InvalidOperationException($"updated app exited immediately (code {code})");
+                    }
+                    return;
+                }
+            }
+            catch (InvalidOperationException)
+            {
+                throw;
+            }
+            catch
+            {
+                if (i == attempts - 1) throw;
+                Thread.Sleep(500);
+            }
+        }
     }
 
     /// <summary>Cleanup pass for the swap leftovers (called at startup).</summary>
     public static void CleanupSwapLeftovers()
     {
         try { if (File.Exists(OldAppPath)) { File.Delete(OldAppPath); } } catch { }
-        try { if (File.Exists(NewAppPath)) { File.Delete(NewAppPath); } } catch { }
+        try { if (File.Exists(NewPackagePath)) { File.Delete(NewPackagePath); } } catch { }
     }
 }

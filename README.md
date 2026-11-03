@@ -1,5 +1,13 @@
 # 🌬 Tunnel Wind
 
+<p align="center">
+  <img src="TunnelWind/docs/img/screenshot-disconnected.png" width="240" />
+  &nbsp;&nbsp;&nbsp;
+  <img src="TunnelWind/docs/img/screenshot-connected.png" width="240" />
+</p>
+
+<p align="center"><em>Left: main window (disconnected). Right: live tunnel — <b>Connected · INPROXY-WEBRTC-OSSH · IT</b>, HTTP+SOCKS ports, region chips with IT selected, split-tunnel toggle.</em></p>
+
 A modern, open Windows client built on top of the **psiphon-tunnel-core** engine.
 This project was created by reverse engineering the complete architecture of the
 official Psiphon 3 Windows client (see [`ANALYSIS.md`](ANALYSIS.md)), then rebuilding

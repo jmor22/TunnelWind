@@ -7,17 +7,17 @@ psiphon3_unpacked.exe
 extracted/
 engine/
 
-# build outputs
-output/
-output-arm64/
-enginetest/
-release/
-update/stage/
-*.zip
+# app build output
+TunnelWind/output/
+TunnelWind/output-arm64/
+TunnelWind/enginetest/
+TunnelWind/release/
+TunnelWind/update/stage/
 
-# portable SDK
+# portable SDK + CLI binary payloads
 tools/dotnet/
 tools/dotnet-sdk.zip
+tools/gh/
 
 # .NET build artifacts
 bin/
@@ -30,3 +30,6 @@ obj/
 .idea/
 Thumbs.db
 desktop.ini
+
+# gh CLI auth material (never commit)
+tools/gh/token.txt
