@@ -56,6 +56,9 @@ class TunnelService : VpnService(), PsiphonProvider {
          * controller is still running happily in the background.
          */
         @Volatile var engineStarted: Boolean = false
+
+        /** true when the user pressed DISCONNECT - blocks sticky auto-reconnect */
+        @Volatile var userStopped: Boolean = false
         private val engineLock = Any()
 
         fun markStarted() { synchronized(engineLock) { engineStarted = true } }
@@ -79,12 +82,24 @@ class TunnelService : VpnService(), PsiphonProvider {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val action = intent?.action ?: ACTION_START
+        // A null intent means the SYSTEM restarted us (START_STICKY after the
+        // process was killed). It must not be treated as a user "connect":
+        // doing that made a manual DISCONNECT silently reconnect.
+        val action = intent?.action
         return when (action) {
-            ACTION_START  -> { startFrontend(); startTunnel(); START_STICKY }
-            ACTION_STOP   -> { stopTunnelInternal()            ; START_NOT_STICKY }
-            ACTION_REGION -> { restartWithNewRegion()           ; START_STICKY }
-            else          -> START_NOT_STICKY
+            ACTION_START  -> { userStopped = false; startFrontend(); startTunnel(); START_STICKY }
+            ACTION_STOP   -> { userStopped = true;  stopTunnelInternal()      ; START_NOT_STICKY }
+            ACTION_REGION -> { restartWithNewRegion()                        ; START_STICKY }
+            null -> {
+                if (userStopped) {
+                    TunnelState.log("[service] restarted by system after manual stop - staying idle")
+                    START_NOT_STICKY
+                } else {
+                    TunnelState.log("[service] restarted by system - resuming tunnel")
+                    startFrontend(); startTunnel(); START_STICKY
+                }
+            }
+            else -> START_NOT_STICKY
         }
     }
 

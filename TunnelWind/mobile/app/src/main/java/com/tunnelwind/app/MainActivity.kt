@@ -131,7 +131,7 @@ private fun Header() {
         Text("Tunnel Wind", color = TextCol, fontSize = 22.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.width(10.dp))
         Surface(color = Field, shape = RoundedCornerShape(6.dp)) {
-            Text("v1.8.0", color = Dim, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+            Text("v1.8.1", color = Dim, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
         }
     }
 }
