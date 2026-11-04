@@ -39,13 +39,13 @@ every part around it in clean, auditable code.
 | System proxy | WinInet user-scope proxy with crash-safe backup / restore, stale-proxy guard at startup, LAN exposure (`ListenInterface: any`) |
 | Update channel | Manifest-driven `update.json` (`appVersion`, `appUrl`, `appSha256`, `engineUrl`, `engineSha256`); SHA-256-verified swap of engine (pin rotation) and app (rename dance) |
 | Hardening | Engine hash pinning (`engine.sha256`), orphan sweep, kill-mode (proxy restore on engine death), single-instance mutex |
-| Tray | Live tray icon with context menu (Show / Connect / Disconnect / Exit), close-to-tray, balloon notifications |
+| Tray | State-coloured tray icon (slate idle / blue connecting / green protected) with context menu (Show / Connect / Disconnect / Exit), close-to-tray, balloon notifications |
 | UX | Desktop shell (1120×720 custom chrome, sidebar navigation, hero status, in-app settings), protocol lock (SSH / OSSH / TLS-OSSH / QUIC-OSSH / Meek), fixed or automatic local ports, traffic counters, "start with Windows" |
 
 ## Layout
 
-> **Releases:** prebuilt `v1.2.1` app packages (x64 + ARM64, framework-dependent) live at
-> <https://github.com/jmor22/TunnelWind/releases/tag/v1.2.1>. The engine is **not** shipped in
+> **Releases:** prebuilt `v1.2.2` app packages (x64 + ARM64, framework-dependent) live at
+> <https://github.com/jmor22/TunnelWind/releases/tag/v1.2.2>. The engine is **not** shipped in
 > releases — obtain your own legitimate copy of Psiphon and run
 > [`TunnelWind/update/refresh-engine.ps1`](TunnelWind/update/refresh-engine.ps1) to extract and
 > install the engine locally (it also pins and verifies the hash every time).
