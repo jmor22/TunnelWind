@@ -37,6 +37,14 @@ object Prefs {
     var onboarded by mutableStateOf(false)
         private set
 
+    /** auto-connect: on app launch / after boot, optionally Wi-Fi only */
+    var autoConnect by mutableStateOf(false)
+        private set
+    var autoWifiOnly by mutableStateOf(false)
+        private set
+    var lastStopAt by mutableStateOf(0L)
+        private set
+
     fun init(ctx: Context) {
         if (::sp.isInitialized) return
         sp = ctx.applicationContext.getSharedPreferences("tw_prefs", Context.MODE_PRIVATE)
@@ -49,6 +57,9 @@ object Prefs {
         excludedApps = sp.getStringSet("excluded_apps", emptySet())?.toSet() ?: emptySet()
         cachedRegions = (sp.getString("cached_regions", "") ?: "").split(",").filter { it.isNotBlank() }
         onboarded = sp.getBoolean("onboarded", false)
+        autoConnect = sp.getBoolean("auto_connect", false)
+        autoWifiOnly = sp.getBoolean("auto_wifi_only", false)
+        lastStopAt = sp.getLong("last_stop_at", 0L)
     }
 
     // ---------------------------------------------------------------- writers
@@ -100,6 +111,21 @@ object Prefs {
     fun setOnboarded() {
         onboarded = true
         sp.edit().putBoolean("onboarded", true).apply()
+    }
+
+    fun saveAutoConnect(v: Boolean) {
+        autoConnect = v
+        sp.edit().putBoolean("auto_connect", v).apply()
+    }
+
+    fun saveAutoWifiOnly(v: Boolean) {
+        autoWifiOnly = v
+        sp.edit().putBoolean("auto_wifi_only", v).apply()
+    }
+
+    fun markStoppedNow() {
+        lastStopAt = System.currentTimeMillis()
+        sp.edit().putLong("last_stop_at", lastStopAt).apply()
     }
 
     // ---------------------------------------------------------------- engine view

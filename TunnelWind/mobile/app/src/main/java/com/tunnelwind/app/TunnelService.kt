@@ -99,6 +99,7 @@ class TunnelService : VpnService(), PsiphonProvider {
         // process was killed). It must not be treated as a user "connect":
         // doing that made a manual DISCONNECT silently reconnect.
         val action = intent?.action
+        TunnelState.log("[service] onStartCommand action=" + (action ?: "null"))
         return when (action) {
             ACTION_START  -> {
                 userStopped = false
@@ -108,7 +109,12 @@ class TunnelService : VpnService(), PsiphonProvider {
                 startTunnel()
                 START_STICKY
             }
-            ACTION_STOP   -> { userStopped = true;  stopTunnelInternal()      ; START_NOT_STICKY }
+            ACTION_STOP   -> {
+                userStopped = true
+                Prefs.markStoppedNow()
+                stopTunnelInternal()
+                START_NOT_STICKY
+            }
             // debug-only: simulate an engine crash (no userStopped) to exercise
             // the unexpected-exit auto-reconnect path
             ACTION_DEBUG_DROP -> {
@@ -179,6 +185,10 @@ class TunnelService : VpnService(), PsiphonProvider {
                 //    sockets) is captured by the VPN and the fetch would hang.
                 TunnelState.log("fetching server list (direct internet)...")
                 val embeddedEntries = prefetchServerList()
+                if (!embeddedEntries.isNullOrEmpty()) {
+                    // keep an index of region -> a few server IPs for latency probes
+                    ServerCatalog.rebuild(embeddedEntries, this@TunnelService)
+                }
 
                 // 1b) Capture the REAL DNS servers now, while the uplink is still
                 //     visible; afterwards the tun (10.240.1.1) becomes active.
@@ -471,6 +481,20 @@ class TunnelService : VpnService(), PsiphonProvider {
                 .build()
             val cb = object : android.net.ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: android.net.Network) {
+                    val cm = getSystemService(CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+                    val caps = try { cm.getNetworkCapabilities(network) } catch (_: Throwable) { null }
+
+                    // auto-connect when a matching uplink appears and we are idle
+                    if (!running && !isEngineStarted() && !userStopped && Prefs.autoConnect) {
+                        val onWifi = caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true
+                        if (!Prefs.autoWifiOnly || onWifi) {
+                            TunnelState.log("[auto] uplink available (" + (if (onWifi) "Wi-Fi" else "mobile") + ") - connecting")
+                            startFrontend()
+                            startTunnel()
+                            return
+                        }
+                    }
+
                     if (!isEngineStarted()) return
                     val now = System.currentTimeMillis()
                     // ignore the initial callback fired right after registering

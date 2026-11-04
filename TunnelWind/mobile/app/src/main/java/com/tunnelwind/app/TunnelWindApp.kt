@@ -13,6 +13,7 @@ class TunnelWindApp : Application() {
         super.onCreate()
         AppContextHolder.init(applicationContext)
         Prefs.init(applicationContext)
+        ServerCatalog.load(applicationContext)
 
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->

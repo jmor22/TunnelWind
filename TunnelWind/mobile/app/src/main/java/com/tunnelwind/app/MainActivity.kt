@@ -31,6 +31,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Public
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Star
@@ -126,6 +127,7 @@ class MainActivity : ComponentActivity() {
         // Samsung/Android aggressively freeze background apps; without this the
         // system can kill the VPN process while browsing in another app.
         requestBatteryExemptionOnce()
+        maybeAutoConnectOnLaunch()
         setContent {
             MaterialTheme(colorScheme = TwScheme, typography = TwTypography) {
                 if (!Prefs.onboarded) {
@@ -155,6 +157,39 @@ class MainActivity : ComponentActivity() {
         val consentIntent = VpnService.prepare(this)
         if (consentIntent == null) startServiceTunnel()
         else vpnPermission.launch(consentIntent)
+    }
+
+    /**
+     * Auto-connect on app launch (and after a reboot via BootReceiver), honoring
+     * the "Wi-Fi only" rule. A recent manual disconnect suppresses it for a while
+     * so reopening the app does not immediately undo the user's choice.
+     */
+    private fun maybeAutoConnectOnLaunch() {
+        try {
+            TunnelState.log(
+                "[auto] launch check: enabled=${Prefs.autoConnect} onboarded=${Prefs.onboarded} " +
+                    "phase=${TunnelState.phase} sinceStop=${(System.currentTimeMillis() - Prefs.lastStopAt) / 1000}s"
+            )
+            if (!Prefs.autoConnect || !Prefs.onboarded) return
+            if (TunnelState.phase != TunnelState.Phase.Stopped) return
+            if (System.currentTimeMillis() - Prefs.lastStopAt < 10 * 60_000L) return
+            if (Prefs.autoWifiOnly && !isOnWifi()) return
+            if (VpnService.prepare(this) != null) return   // consent dialog pending
+            TunnelState.log("[auto] connecting on launch")
+            startServiceTunnel()
+        } catch (_: Throwable) { }
+    }
+
+    private fun isOnWifi(): Boolean {
+        return try {
+            val cm = getSystemService(CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+            cm.allNetworks.any { n ->
+                val caps = cm.getNetworkCapabilities(n) ?: return@any false
+                caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                    !caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) &&
+                    caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)
+            }
+        } catch (_: Throwable) { false }
     }
 
     private fun startServiceTunnel() {
@@ -600,11 +635,18 @@ private fun StatCell(label: String, value: String, modifier: Modifier = Modifier
 @Composable
 private fun ServersScreen(onPicked: () -> Unit) {
     val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
     var query by remember { mutableStateOf("") }
     val regions = TunnelState.availableRegions.ifEmpty { Prefs.cachedRegions }
     val selected = Prefs.region
     val favorites = Prefs.favorites
     val recents = Prefs.recents
+
+    LaunchedEffect(regions) {
+        if (regions.isNotEmpty() && Latency.shouldRefresh()) {
+            Latency.measure(ctx, regions)
+        }
+    }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         Spacer(Modifier.height(8.dp))
@@ -613,7 +655,28 @@ private fun ServersScreen(onPicked: () -> Unit) {
         Text("Choose where your traffic exits", color = Dim, fontSize = 12.sp)
         Spacer(Modifier.height(14.dp))
 
-        SearchField(query = query, onValueChange = { query = it })
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SearchField(
+                query = query,
+                onValueChange = { query = it },
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(Modifier.width(6.dp))
+            IconButton(
+                onClick = { scope.launch { Latency.measure(ctx, regions) } },
+                enabled = !Latency.measuring
+            ) {
+                if (Latency.measuring) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        color = Accent,
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Icon(Icons.Rounded.Refresh, contentDescription = "Measure latency", tint = Dim)
+                }
+            }
+        }
         Spacer(Modifier.height(8.dp))
 
         val q = query.trim()
@@ -673,6 +736,7 @@ private fun ServersScreen(onPicked: () -> Unit) {
 @Composable
 private fun ServerRowItem(code: String, selected: String, onPicked: () -> Unit, ctx: Context) {
     val favorite = code in Prefs.favorites
+    val latency = Latency.ms[code]
     Row(
         Modifier
             .fillMaxWidth()
@@ -694,6 +758,13 @@ private fun ServerRowItem(code: String, selected: String, onPicked: () -> Unit, 
         if (code == selected) {
             Icon(Icons.Rounded.Check, contentDescription = null, tint = Accent, modifier = Modifier.size(18.dp))
         }
+        if (latency != null) {
+            Spacer(Modifier.width(8.dp))
+            Text("$latency ms", color = latencyColor(latency), fontSize = 11.sp)
+        } else if (Latency.measuring) {
+            Spacer(Modifier.width(8.dp))
+            Text("\u2026", color = Dim, fontSize = 11.sp)
+        }
         IconButton(onClick = { Prefs.toggleFavorite(code) }) {
             Icon(
                 imageVector = if (favorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
@@ -703,6 +774,12 @@ private fun ServerRowItem(code: String, selected: String, onPicked: () -> Unit, 
             )
         }
     }
+}
+
+private fun latencyColor(ms: Int): Color = when {
+    ms < 120 -> Ok
+    ms < 250 -> Color(0xFFF5C451)
+    else -> Warn
 }
 
 @Composable
@@ -814,6 +891,25 @@ private fun SettingsScreen(onDiagnostics: () -> Unit) {
         }
 
         Spacer(Modifier.height(18.dp))
+        SectionHeader("AUTO-CONNECT")
+        SettingsCard {
+            SwitchRow(
+                title = "Auto-connect",
+                subtitle = "Connect when the app opens or after a reboot",
+                checked = Prefs.autoConnect,
+                onCheckedChange = { Prefs.saveAutoConnect(it) }
+            )
+            HorizontalDivider(color = CardBorder)
+            SwitchRow(
+                title = "Wi-Fi only",
+                subtitle = "Never auto-connect on mobile data",
+                checked = Prefs.autoWifiOnly,
+                enabled = Prefs.autoConnect,
+                onCheckedChange = { Prefs.saveAutoWifiOnly(it) }
+            )
+        }
+
+        Spacer(Modifier.height(18.dp))
         SectionHeader("DIAGNOSTICS")
         SettingsCard {
             SettingsRow(
@@ -863,8 +959,7 @@ private fun SettingsRow(
     value: String,
     subtitle: String? = null,
     onClick: () -> Unit
-) {
-    Row(
+) {    Row(
         Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
@@ -882,6 +977,44 @@ private fun SettingsRow(
             Spacer(Modifier.width(4.dp))
         }
         Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = Dim, modifier = Modifier.size(18.dp))
+    }
+}
+
+@Composable
+private fun SwitchRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    enabled: Boolean = true,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled) { onCheckedChange(!checked) }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                color = if (enabled) TextCol else Dim,
+                fontSize = 14.sp, fontWeight = FontWeight.Medium
+            )
+            Text(subtitle, color = Dim, fontSize = 11.sp)
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            enabled = enabled,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.White,
+                checkedTrackColor = Accent,
+                uncheckedThumbColor = Dim,
+                uncheckedTrackColor = Track,
+                uncheckedBorderColor = CardBorder
+            )
+        )
     }
 }
 
@@ -1250,11 +1383,16 @@ private fun InfoPill(label: String, value: String, modifier: Modifier = Modifier
 // ---------------------------------------------------------------- shared bits
 
 @Composable
-private fun SearchField(query: String, onValueChange: (String) -> Unit, placeholder: String = "Search country") {
+private fun SearchField(
+    query: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String = "Search country",
+    modifier: Modifier = Modifier.fillMaxWidth()
+) {
     OutlinedTextField(
         value = query,
         onValueChange = onValueChange,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier,
         placeholder = { Text(placeholder, color = Dim) },
         leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = Dim) },
         singleLine = true,

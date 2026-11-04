@@ -103,8 +103,9 @@ which gives full control over bootstrap and provider callbacks.
 | Tun | Official Psiphon addressing scheme: private subnet with a **different** DNS address (e.g. `172.16.0.1/12`, DNS `172.16.0.2`) so DNS packets actually enter the tunnel |
 | Engine sockets | `useDeviceBinder=true` → engine calls `bindToDevice`, host answers `VpnService.protect()`; mandatory in VPN mode |
 | UI | Compose, Nord-style: bottom navigation (Home / Servers / Settings), hero shield/power control, one status line, live session/upload/download stats, diagnostics sheet |
-| Servers | searchable country list with flags, favorites (★) and recents, persisted; the last region list is cached so it is usable before the next connect |
+| Servers | searchable country list with flags, favorites (★) and recents, persisted; the last region list is cached so it is usable before the next connect; **latency per region** (TCP probe over the real uplink, colour-coded, refreshable) |
 | Settings | protocol lock (SSH / OSSH / TLS-OSSH / QUIC-OSSH / Meek), split tunneling (off / own country / country list), per-app exclusions, always-on VPN shortcut, share diagnostics |
+| Automation | auto-connect on app launch and after reboot (stale boot broadcasts ignored), optional Wi-Fi-only rule, 10-minute grace after a manual disconnect |
 | Shell | Quick Settings tile (connect / disconnect from the shade), notification with a Disconnect action, Android 12 splash screen, adaptive launcher icon |
 | First run | 3-step onboarding; bundled **Inter** typeface (SIL OFL, see `TunnelWind/mobile/licenses/Inter-OFL.txt`) |
 | Resilience | 180 s connect watchdog, auto-reconnect (3 attempts with backoff) when the engine exits unexpectedly, uplink-change detection (`Psi.networkChanged()`), kill switch (tun traffic dropped while connecting/stopping), battery-optimisation exemption request, crash log persisted for the next launch |
