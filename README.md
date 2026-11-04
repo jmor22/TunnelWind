@@ -82,14 +82,14 @@ Runtime prerequisites are already inside the portable bundle; no system installs
 ## Android client (`TunnelWind/mobile`)
 
 <p align="center">
-  <img src="docs/ui-disconnected.png" width="220" />
+  <img src="docs/ui-home.png" width="220" />
   &nbsp;&nbsp;
-  <img src="docs/ui-connected.png" width="220" />
+  <img src="docs/ui-servers-full.png" width="220" />
   &nbsp;&nbsp;
-  <img src="docs/ui-servers.png" width="220" />
+  <img src="docs/ui-settings.png" width="220" />
 </p>
 
-<p align="center"><em>Disconnected · Protected (hero power control, live session/traffic stats) · server picker sheet</em></p>
+<p align="center"><em>Home (protected, hero power control + live stats) · Servers (search, favorites, recents) · Settings</em></p>
 
 A native Kotlin/Compose VpnService client around the **official Psiphon Android
 library** (`psiphontunnel`, engine `psiphon-tunnel-core` c4a09096ab / v2.0.42).
@@ -102,7 +102,9 @@ which gives full control over bootstrap and provider callbacks.
 | DNS | Real uplink resolvers are captured before the tun hides them and handed to the engine (`GetDNSServersAsString`); the tun itself advertises the official transparent-DNS router address |
 | Tun | Official Psiphon addressing scheme: private subnet with a **different** DNS address (e.g. `172.16.0.1/12`, DNS `172.16.0.2`) so DNS packets actually enter the tunnel |
 | Engine sockets | `useDeviceBinder=true` → engine calls `bindToDevice`, host answers `VpnService.protect()`; mandatory in VPN mode |
-| UI | Compose, Nord-style: hero shield/power control with animated ring, one status line, searchable server sheet, session/upload/download stats, split-tunnel switch, diagnostics sheet (ports + engine log) |
+| UI | Compose, Nord-style: bottom navigation (Home / Servers / Settings), hero shield/power control, one status line, live session/upload/download stats, diagnostics sheet |
+| Servers | searchable country list with flags, favorites (★) and recents, persisted; the last region list is cached so it is usable before the next connect |
+| Settings | protocol lock (SSH / OSSH / TLS-OSSH / QUIC-OSSH / Meek), split tunneling (off / own country / country list), per-app exclusions, always-on VPN shortcut, share diagnostics |
 | Resilience | 180 s connect watchdog, auto-reconnect (3 attempts with backoff) when the engine exits unexpectedly, uplink-change detection (`Psi.networkChanged()`), kill switch (tun traffic dropped while connecting/stopping), battery-optimisation exemption request, crash log persisted for the next launch |
 
 Built and verified on a Galaxy S21 FE (Android 16): 429 server entries imported,

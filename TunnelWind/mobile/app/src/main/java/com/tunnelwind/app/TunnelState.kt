@@ -27,8 +27,6 @@ object TunnelState {
     var connecting by mutableStateOf(false)
 
     var availableRegions by mutableStateOf<List<String>>(emptyList())
-    var egressRegion by mutableStateOf("")            // user selected; empty = auto
-    var bypassOwnRegion by mutableStateOf(false)
     var vpnPrepared by mutableStateOf(false)
     var lastError by mutableStateOf<String?>(null)
 

@@ -161,6 +161,13 @@ class TunnelService : VpnService(), PsiphonProvider {
             phase = TunnelState.Phase.Starting
         }
         TunnelState.log("starting VPN service (direct Go binding)...")
+        TunnelState.log(
+            "[cfg] region=" + Prefs.region.ifEmpty { "auto" } +
+                " protocol=" + Prefs.protocolLabel() +
+                " split=" + Prefs.splitMode +
+                (if (Prefs.splitMode == "list") "(" + Prefs.splitRegions.size + ")" else "") +
+                " excludedApps=" + Prefs.excludedApps.size
+        )
         connectStartedAt = System.currentTimeMillis()
         startNetworkMonitor()
 
@@ -243,6 +250,15 @@ class TunnelService : VpnService(), PsiphonProvider {
             addRoute("0.0.0.0", 0)
             addRoute(tunNet.subnet, tunNet.prefix)
             addDnsServer(tunNet.dns)
+            // per-app split tunneling: excluded apps keep using the real network
+            for (pkg in Prefs.excludedApps) {
+                try {
+                    addDisallowedApplication(pkg)
+                    TunnelState.log("[tun] excluded app: $pkg")
+                } catch (t: Throwable) {
+                    TunnelState.log("[tun] cannot exclude $pkg: " + (t.message ?: t.toString()))
+                }
+            }
         }.establish() ?: throw IllegalStateException("VpnService.prepare was not granted (dialog pending)")
         tunFd = pfd
         val intFd = pfd.detachFd()
@@ -631,11 +647,25 @@ class TunnelService : VpnService(), PsiphonProvider {
             b.append("  \"PacketTunnelTunFileDescriptor\" : ").append(fd).append(",\n")
             b.append("  \"PacketTunnelTransparentDNSIPv4Address\" : \"").append(tunNet.dns).append("\",\n")
         }
-        if (TunnelState.egressRegion.isNotEmpty()) {
-            b.append("  \"EgressRegion\" : \"").append(esc(TunnelState.egressRegion)).append("\",\n")
+        if (Prefs.region.isNotEmpty()) {
+            b.append("  \"EgressRegion\" : \"").append(esc(Prefs.region)).append("\",\n")
         }
-        if (TunnelState.bypassOwnRegion) {
-            b.append("  \"SplitTunnelOwnRegion\" : true,\n")
+        when (Prefs.splitMode) {
+            "own" -> b.append("  \"SplitTunnelOwnRegion\" : true,\n")
+            "list" -> {
+                val regions = Prefs.splitRegions
+                if (regions.isNotEmpty()) {
+                    b.append("  \"SplitTunnelRegions\" : [")
+                    b.append(regions.sorted().joinToString(",") { "\"" + esc(it) + "\"" })
+                    b.append("],\n")
+                }
+            }
+        }
+        val protocols = Prefs.protocolList()
+        if (protocols.isNotEmpty()) {
+            b.append("  \"LimitTunnelProtocols\" : [")
+            b.append(protocols.joinToString(",") { "\"" + esc(it) + "\"" })
+            b.append("],\n")
         }
         b.append("  \"EstablishTunnelTimeoutSeconds\" : 0\n")
         b.append('}')
@@ -701,6 +731,7 @@ class TunnelService : VpnService(), PsiphonProvider {
                         val list = ArrayList<String>()
                         for (i in 0 until arr.length()) list.add(arr.getString(i))
                         TunnelState.update { availableRegions = list }
+                        Prefs.saveCachedRegions(list)
                         TunnelState.log("[regions] " + list.size + " available")
                     }
                 }

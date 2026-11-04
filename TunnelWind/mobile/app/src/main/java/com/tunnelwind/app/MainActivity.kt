@@ -1,6 +1,7 @@
 package com.tunnelwind.app
 
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.net.VpnService
@@ -13,6 +14,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -20,16 +22,24 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.VerifiedUser
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,6 +48,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -45,10 +56,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.graphics.drawable.toBitmap
 import com.tunnelwind.app.ui.CountryName
 import com.tunnelwind.app.ui.flagEmoji
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Locale
 
 // ---------------------------------------------------------------- design tokens
@@ -97,6 +111,7 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
         )
         AppContextHolder.init(applicationContext)
+        Prefs.init(applicationContext)
         if (Build.VERSION.SDK_INT >= 33) {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1)
         }
@@ -131,8 +146,6 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun connectPressed() {
-        // VpnService.prepare returns null when permission is ALREADY granted -
-        // launching a null intent would crash. Null means go.
         val consentIntent = VpnService.prepare(this)
         if (consentIntent == null) startServiceTunnel()
         else vpnPermission.launch(consentIntent)
@@ -148,11 +161,11 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// ---------------------------------------------------------------- screen
+// ---------------------------------------------------------------- root
 
 @Composable
 fun TunnelWindUi(onConnect: () -> Unit, onStop: () -> Unit) {
-    var showServers by remember { mutableStateOf(false) }
+    var tab by rememberSaveable { mutableStateOf(0) }
     var showDiagnostics by remember { mutableStateOf(false) }
 
     Box(
@@ -164,28 +177,78 @@ fun TunnelWindUi(onConnect: () -> Unit, onStop: () -> Unit) {
             Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.systemBars)
-                .padding(horizontal = 20.dp)
         ) {
-            TopBar(onDiagnostics = { showDiagnostics = true })
-            Spacer(Modifier.weight(0.5f))
-            PowerButton(onConnect = onConnect, onStop = onStop)
-            Spacer(Modifier.height(22.dp))
-            StatusBlock()
-            Spacer(Modifier.height(26.dp))
-            ServerPill(onClick = { showServers = true })
-            Spacer(Modifier.height(12.dp))
-            StatsRow()
-            Spacer(Modifier.height(12.dp))
-            SplitTunnelRow()
-            Spacer(Modifier.weight(1f))
+            Box(Modifier.weight(1f)) {
+                when (tab) {
+                    0 -> HomeScreen(
+                        onConnect = onConnect,
+                        onStop = onStop,
+                        onOpenServers = { tab = 1 },
+                        onDiagnostics = { showDiagnostics = true }
+                    )
+                    1 -> ServersScreen(onPicked = { tab = 0 })
+                    else -> SettingsScreen(onDiagnostics = { showDiagnostics = true })
+                }
+            }
+            BottomBar(tab) { tab = it }
         }
     }
 
-    if (showServers) {
-        ServerSheet(onDismiss = { showServers = false })
-    }
     if (showDiagnostics) {
         DiagnosticsSheet(onDismiss = { showDiagnostics = false })
+    }
+}
+
+@Composable
+private fun BottomBar(selected: Int, onSelect: (Int) -> Unit) {
+    val items = listOf(
+        Triple("Home", Icons.Rounded.Home, 0),
+        Triple("Servers", Icons.Rounded.Public, 1),
+        Triple("Settings", Icons.Rounded.Settings, 2)
+    )
+    NavigationBar(
+        containerColor = Card,
+        tonalElevation = 0.dp,
+        windowInsets = WindowInsets(0, 0, 0, 0)
+    ) {
+        items.forEach { (label, icon, index) ->
+            NavigationBarItem(
+                selected = selected == index,
+                onClick = { onSelect(index) },
+                icon = { Icon(icon, contentDescription = label, modifier = Modifier.size(22.dp)) },
+                label = { Text(label, fontSize = 10.sp) },
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = Color.White,
+                    selectedTextColor = TextCol,
+                    indicatorColor = Accent.copy(alpha = 0.28f),
+                    unselectedIconColor = Dim,
+                    unselectedTextColor = Dim
+                )
+            )
+        }
+    }
+}
+
+// ---------------------------------------------------------------- home
+
+@Composable
+private fun HomeScreen(
+    onConnect: () -> Unit,
+    onStop: () -> Unit,
+    onOpenServers: () -> Unit,
+    onDiagnostics: () -> Unit
+) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
+        TopBar(onDiagnostics = onDiagnostics)
+        Spacer(Modifier.weight(0.45f))
+        PowerButton(onConnect = onConnect, onStop = onStop)
+        Spacer(Modifier.height(20.dp))
+        StatusBlock()
+        Spacer(Modifier.height(24.dp))
+        ServerPill(onClick = onOpenServers)
+        Spacer(Modifier.height(12.dp))
+        StatsRow()
+        Spacer(Modifier.weight(1f))
     }
 }
 
@@ -248,7 +311,6 @@ private fun PowerButton(onConnect: () -> Unit, onStop: () -> Unit) {
         Modifier.fillMaxWidth().height(252.dp),
         contentAlignment = Alignment.Center
     ) {
-        // soft halo behind the shield
         Canvas(Modifier.size(240.dp)) {
             val r = size.minDimension / 2f
             val alpha = when {
@@ -266,7 +328,6 @@ private fun PowerButton(onConnect: () -> Unit, onStop: () -> Unit) {
             )
         }
 
-        // outer ring (+ progress arc while connecting)
         Canvas(Modifier.size(222.dp)) {
             val ring = 1.5.dp.toPx()
             drawCircle(
@@ -287,7 +348,6 @@ private fun PowerButton(onConnect: () -> Unit, onStop: () -> Unit) {
             }
         }
 
-        // inner disc = the actual button
         Column(
             modifier = Modifier
                 .size(170.dp)
@@ -335,8 +395,7 @@ private fun StatusBlock() {
     }
     val subtitle = when (phase) {
         TunnelState.Phase.Connected ->
-            TunnelState.connectedRegion?.let { CountryName(it) + " \u00B7 Automatic" }
-                ?: "Tunnel is active"
+            TunnelState.connectedRegion?.let { CountryName(it) } ?: "Tunnel is active"
         TunnelState.Phase.Starting ->
             when {
                 TunnelState.reconnectAttempt > 0 ->
@@ -362,7 +421,7 @@ private fun StatusBlock() {
 
 @Composable
 private fun ServerPill(onClick: () -> Unit) {
-    val code = TunnelState.egressRegion
+    val code = Prefs.region
     Row(
         Modifier
             .fillMaxWidth()
@@ -443,160 +502,112 @@ private fun StatCell(label: String, value: String, modifier: Modifier = Modifier
     }
 }
 
+// ---------------------------------------------------------------- servers
+
 @Composable
-private fun SplitTunnelRow() {
+private fun ServersScreen(onPicked: () -> Unit) {
     val ctx = LocalContext.current
-    val checked = TunnelState.bypassOwnRegion
-
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(Card)
-            .border(1.dp, CardBorder, RoundedCornerShape(18.dp))
-            .clickable { toggleSplitTunnel(ctx) }
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                "Split tunneling", color = TextCol,
-                fontSize = 14.sp, fontWeight = FontWeight.Medium
-            )
-            Text(
-                if (checked) "Home-country traffic bypasses the VPN"
-                else "All traffic goes through the VPN",
-                color = Dim, fontSize = 11.sp
-            )
-        }
-        Switch(
-            checked = checked,
-            onCheckedChange = { toggleSplitTunnel(ctx) },
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = Color.White,
-                checkedTrackColor = Accent,
-                uncheckedThumbColor = Dim,
-                uncheckedTrackColor = Track,
-                uncheckedBorderColor = CardBorder
-            )
-        )
-    }
-}
-
-private fun toggleSplitTunnel(ctx: android.content.Context) {
-    val newValue = !TunnelState.bypassOwnRegion
-    TunnelState.update { bypassOwnRegion = newValue }
-    TunnelState.log("[ui] split tunneling (own region) = $newValue")
-    if (TunnelState.phase == TunnelState.Phase.Connected ||
-        TunnelState.phase == TunnelState.Phase.Starting) {
-        ctx.startForegroundService(
-            Intent(ctx, TunnelService::class.java).apply { action = TunnelService.ACTION_REGION }
-        )
-        TunnelState.log("[ui] reconnecting to apply split tunneling")
-    }
-}
-
-private fun pickRegion(ctx: android.content.Context, code: String) {
-    TunnelState.update { egressRegion = code }
-    TunnelState.log("[ui] server location = " + code.ifEmpty { "auto" })
-    if (TunnelState.phase == TunnelState.Phase.Connected ||
-        TunnelState.phase == TunnelState.Phase.Starting) {
-        ctx.startForegroundService(
-            Intent(ctx, TunnelService::class.java).apply { action = TunnelService.ACTION_REGION }
-        )
-    }
-}
-
-// ---------------------------------------------------------------- sheets
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ServerSheet(onDismiss: () -> Unit) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val scope = rememberCoroutineScope()
-    val ctx = LocalContext.current
-    val regions = TunnelState.availableRegions
-    val selected = TunnelState.egressRegion
     var query by remember { mutableStateOf("") }
+    val regions = TunnelState.availableRegions.ifEmpty { Prefs.cachedRegions }
+    val selected = Prefs.region
+    val favorites = Prefs.favorites
+    val recents = Prefs.recents
 
-    val filtered = remember(regions, query) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
+        Spacer(Modifier.height(8.dp))
+        Text("Servers", color = TextCol, fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(2.dp))
+        Text("Choose where your traffic exits", color = Dim, fontSize = 12.sp)
+        Spacer(Modifier.height(14.dp))
+
+        SearchField(query = query, onValueChange = { query = it })
+        Spacer(Modifier.height(8.dp))
+
         val q = query.trim()
-        if (q.isEmpty()) regions.sorted()
+        val filtered = if (q.isEmpty()) regions.sorted()
         else regions.filter {
             CountryName(it).contains(q, ignoreCase = true) || it.equals(q, ignoreCase = true)
         }.sorted()
-    }
 
-    fun close() {
-        scope.launch {
-            sheetState.hide()
-        }.invokeOnCompletion { onDismiss() }
-    }
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = Card,
-        contentColor = TextCol,
-        dragHandle = { BottomSheetDefaults.DragHandle(color = Track) }
-    ) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .imePadding()
-        ) {
-            Text("Server location", color = TextCol, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(4.dp))
-            Text("Choose where your traffic should exit.", color = Dim, fontSize = 12.sp)
-            Spacer(Modifier.height(14.dp))
-
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Search country", color = Dim) },
-                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = Dim) },
-                singleLine = true,
-                shape = RoundedCornerShape(14.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Accent,
-                    unfocusedBorderColor = CardBorder,
-                    focusedContainerColor = BgTop,
-                    unfocusedContainerColor = BgTop,
-                    cursorColor = Accent,
-                    focusedTextColor = TextCol,
-                    unfocusedTextColor = TextCol
-                )
-            )
-
-            Spacer(Modifier.height(10.dp))
-
-            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 460.dp)) {
-                item {
-                    ServerRow(
-                        code = "",
-                        title = "Fastest server",
-                        subtitle = "Automatic selection",
-                        selected = selected.isEmpty()
-                    ) {
-                        pickRegion(ctx, "")
-                        close()
-                    }
+        LazyColumn(Modifier.fillMaxSize()) {
+            item(key = "auto") {
+                ServerRow("", "Fastest server", "Automatic selection", selected.isEmpty()) {
+                    pickServer(ctx, "", onPicked)
                 }
-                items(filtered, key = { it }) { code ->
-                    ServerRow(
-                        code = code,
-                        title = CountryName(code),
-                        subtitle = code,
-                        selected = code == selected
-                    ) {
-                        pickRegion(ctx, code)
-                        close()
+            }
+
+            if (q.isEmpty() && favorites.isNotEmpty()) {
+                item(key = "h-fav") { SectionHeader("FAVORITES") }
+                items(favorites.sorted(), key = { "fav-$it" }) { code ->
+                    ServerRowItem(code, selected, onPicked, ctx)
+                }
+            }
+
+            if (q.isEmpty() && recents.isNotEmpty()) {
+                val showRecents = recents.filter { regions.isEmpty() || it in regions }
+                if (showRecents.isNotEmpty()) {
+                    item(key = "h-rec") { SectionHeader("RECENT") }
+                    items(showRecents, key = { "rec-$it" }) { code ->
+                        ServerRowItem(code, selected, onPicked, ctx)
                     }
                 }
             }
-            Spacer(Modifier.height(12.dp))
+
+            item(key = "h-all") {
+                SectionHeader(if (q.isEmpty()) "ALL LOCATIONS" else "RESULTS")
+            }
+
+            if (filtered.isEmpty()) {
+                item(key = "empty") {
+                    Text(
+                        if (regions.isEmpty()) "Connect once so the engine can report the available regions."
+                        else "No country matches \"$q\".",
+                        color = Dim, fontSize = 12.sp,
+                        modifier = Modifier.padding(vertical = 16.dp)
+                    )
+                }
+            }
+
+            items(filtered, key = { "all-$it" }) { code ->
+                ServerRowItem(code, selected, onPicked, ctx)
+            }
+
+            item(key = "tail") { Spacer(Modifier.height(24.dp)) }
+        }
+    }
+}
+
+@Composable
+private fun ServerRowItem(code: String, selected: String, onPicked: () -> Unit, ctx: Context) {
+    val favorite = code in Prefs.favorites
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (code == selected) Accent.copy(alpha = 0.14f) else Color.Transparent)
+            .clickable { pickServer(ctx, code, onPicked) }
+            .padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(flagEmoji(code), fontSize = 20.sp)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                CountryName(code), color = TextCol, fontSize = 15.sp,
+                fontWeight = if (code == selected) FontWeight.SemiBold else FontWeight.Normal
+            )
+            Text(code, color = Dim, fontSize = 11.sp)
+        }
+        if (code == selected) {
+            Icon(Icons.Rounded.Check, contentDescription = null, tint = Accent, modifier = Modifier.size(18.dp))
+        }
+        IconButton(onClick = { Prefs.toggleFavorite(code) }) {
+            Icon(
+                imageVector = if (favorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
+                contentDescription = if (favorite) "Remove favorite" else "Add favorite",
+                tint = if (favorite) Accent else Dim,
+                modifier = Modifier.size(20.dp)
+            )
         }
     }
 }
@@ -632,6 +643,409 @@ private fun ServerRow(
         }
     }
 }
+
+private fun pickServer(ctx: Context, code: String, onPicked: () -> Unit) {
+    Prefs.saveRegion(code)
+    Prefs.addRecent(code)
+    TunnelState.log("[ui] server location = " + code.ifEmpty { "auto" })
+    restartIfRunning(ctx)
+    onPicked()
+}
+
+// ---------------------------------------------------------------- settings
+
+@Composable
+private fun SettingsScreen(onDiagnostics: () -> Unit) {
+    val ctx = LocalContext.current
+    var showProtocol by remember { mutableStateOf(false) }
+    var showSplitMode by remember { mutableStateOf(false) }
+    var showCountries by remember { mutableStateOf(false) }
+    var showApps by remember { mutableStateOf(false) }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp)
+    ) {
+        Spacer(Modifier.height(8.dp))
+        Text("Settings", color = TextCol, fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(18.dp))
+
+        SectionHeader("CONNECTION")
+        SettingsCard {
+            SettingsRow(
+                title = "Protocol",
+                value = Prefs.protocolLabel(),
+                subtitle = "Restrict the transports the engine may use",
+                onClick = { showProtocol = true }
+            )
+            HorizontalDivider(color = CardBorder)
+            SettingsRow(
+                title = "Always-on VPN",
+                value = "",
+                subtitle = "Recommended: enable always-on + block connections without VPN",
+                onClick = { openVpnSettings(ctx) }
+            )
+        }
+
+        Spacer(Modifier.height(18.dp))
+        SectionHeader("SPLIT TUNNELING")
+        SettingsCard {
+            SettingsRow(
+                title = "Mode",
+                value = when (Prefs.splitMode) {
+                    "own" -> "Own country"
+                    "list" -> "Selected"
+                    else -> "Off"
+                },
+                subtitle = Prefs.splitModeLabel(),
+                onClick = { showSplitMode = true }
+            )
+            if (Prefs.splitMode == "list") {
+                HorizontalDivider(color = CardBorder)
+                SettingsRow(
+                    title = "Countries",
+                    value = "${Prefs.splitRegions.size}",
+                    subtitle = "Traffic to these countries stays outside the VPN",
+                    onClick = { showCountries = true }
+                )
+            }
+            HorizontalDivider(color = CardBorder)
+            SettingsRow(
+                title = "Excluded apps",
+                value = "${Prefs.excludedApps.size}",
+                subtitle = "Apps that bypass the VPN entirely",
+                onClick = { showApps = true }
+            )
+        }
+
+        Spacer(Modifier.height(18.dp))
+        SectionHeader("DIAGNOSTICS")
+        SettingsCard {
+            SettingsRow(
+                title = "Connection log",
+                value = "",
+                subtitle = "Ports, engine notices, errors",
+                onClick = onDiagnostics
+            )
+            HorizontalDivider(color = CardBorder)
+            SettingsRow(
+                title = "Share diagnostics",
+                value = "",
+                subtitle = "Export the current log as text",
+                onClick = { shareLog(ctx) }
+            )
+        }
+
+        Spacer(Modifier.height(26.dp))
+        Text(
+            "Tunnel Wind " + appVersion() + "  \u00B7  psiphon-tunnel-core",
+            color = Dim, fontSize = 10.sp
+        )
+        Spacer(Modifier.height(24.dp))
+    }
+
+    if (showProtocol) ProtocolDialog(onDismiss = { showProtocol = false; restartIfRunning(ctx) })
+    if (showSplitMode) SplitModeDialog(onDismiss = { showSplitMode = false; restartIfRunning(ctx) })
+    if (showCountries) CountryPickerDialog(onDismiss = { showCountries = false; restartIfRunning(ctx) })
+    if (showApps) AppPickerSheet(onDismiss = { showApps = false; restartIfRunning(ctx) })
+}
+
+@Composable
+private fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(Card)
+            .border(1.dp, CardBorder, RoundedCornerShape(18.dp)),
+        content = content
+    )
+}
+
+@Composable
+private fun SettingsRow(
+    title: String,
+    value: String,
+    subtitle: String? = null,
+    onClick: () -> Unit
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, color = TextCol, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            if (subtitle != null) {
+                Text(subtitle, color = Dim, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        if (value.isNotEmpty()) {
+            Text(value, color = Dim, fontSize = 12.sp, maxLines = 1)
+            Spacer(Modifier.width(4.dp))
+        }
+        Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = Dim, modifier = Modifier.size(18.dp))
+    }
+}
+
+@Composable
+private fun ProtocolDialog(onDismiss: () -> Unit) {
+    val options = listOf(
+        "auto" to "Automatic (all transports)",
+        "ssh" to "SSH",
+        "ossh" to "OSSH",
+        "tls" to "TLS-OSSH",
+        "quic" to "QUIC-OSSH",
+        "meek" to "Meek (fronted)"
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Card,
+        titleContentColor = TextCol,
+        textContentColor = Dim,
+        title = { Text("Protocol", fontSize = 20.sp, fontWeight = FontWeight.SemiBold) },
+        text = {
+            Column {
+                options.forEach { (key, label) ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { Prefs.saveProtocol(key); onDismiss() }
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = Prefs.protocol == key,
+                            onClick = { Prefs.saveProtocol(key); onDismiss() },
+                            colors = RadioButtonDefaults.colors(selectedColor = Accent, unselectedColor = Dim)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(label, color = TextCol, fontSize = 14.sp)
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Locking a protocol can help on restrictive networks, but may reduce the number of servers you can reach.",
+                    color = Dim, fontSize = 11.sp
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Close", color = Accent) }
+        }
+    )
+}
+
+@Composable
+private fun SplitModeDialog(onDismiss: () -> Unit) {
+    val options = listOf(
+        "off" to "Off - everything goes through the VPN",
+        "own" to "Own country bypasses the VPN",
+        "list" to "Selected countries bypass the VPN"
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Card,
+        titleContentColor = TextCol,
+        textContentColor = Dim,
+        title = { Text("Split tunneling", fontSize = 20.sp, fontWeight = FontWeight.SemiBold) },
+        text = {
+            Column {
+                options.forEach { (key, label) ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { Prefs.saveSplitMode(key); onDismiss() }
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = Prefs.splitMode == key,
+                            onClick = { Prefs.saveSplitMode(key); onDismiss() },
+                            colors = RadioButtonDefaults.colors(selectedColor = Accent, unselectedColor = Dim)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(label, color = TextCol, fontSize = 13.sp)
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Bypassed traffic leaves from your real IP, unencrypted by the tunnel.",
+                    color = Dim, fontSize = 11.sp
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Close", color = Accent) }
+        }
+    )
+}
+
+@Composable
+private fun CountryPickerDialog(onDismiss: () -> Unit) {
+    val regions = TunnelState.availableRegions.ifEmpty { Prefs.cachedRegions }.sorted()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Card,
+        titleContentColor = TextCol,
+        textContentColor = Dim,
+        title = { Text("Bypass countries", fontSize = 20.sp, fontWeight = FontWeight.SemiBold) },
+        text = {
+            if (regions.isEmpty()) {
+                Text("Connect once so the engine can report the available regions.", color = Dim, fontSize = 12.sp)
+            } else {
+                Column(Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState())) {
+                    regions.forEach { code ->
+                        val checked = code in Prefs.splitRegions
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    val s = Prefs.splitRegions.toMutableSet()
+                                    if (checked) s.remove(code) else s.add(code)
+                                    Prefs.saveSplitRegions(s)
+                                }
+                                .padding(vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = checked,
+                                onCheckedChange = null,
+                                colors = CheckboxDefaults.colors(checkedColor = Accent, uncheckedColor = Dim)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text("${flagEmoji(code)}  ${CountryName(code)}", color = TextCol, fontSize = 13.sp)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Done", color = Accent) }
+        }
+    )
+}
+
+// ---------------------------------------------------------------- per-app picker
+
+private data class AppEntry(
+    val pkg: String,
+    val label: String,
+    val icon: androidx.compose.ui.graphics.ImageBitmap?
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AppPickerSheet(onDismiss: () -> Unit) {
+    val ctx = LocalContext.current
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var query by remember { mutableStateOf("") }
+    var apps by remember { mutableStateOf<List<AppEntry>?>(null) }
+
+    LaunchedEffect(Unit) {
+        apps = withContext(Dispatchers.IO) { loadLaunchableApps(ctx) }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Card,
+        contentColor = TextCol,
+        dragHandle = { BottomSheetDefaults.DragHandle(color = Track) }
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .imePadding()
+        ) {
+            Text("Excluded apps", color = TextCol, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Traffic from these apps stays outside the VPN (they use your normal connection).",
+                color = Dim, fontSize = 12.sp
+            )
+            Spacer(Modifier.height(12.dp))
+
+            SearchField(query = query, onValueChange = { query = it }, placeholder = "Search apps")
+            Spacer(Modifier.height(8.dp))
+
+            val list = apps
+            if (list == null) {
+                Box(Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = Accent, strokeWidth = 2.dp)
+                }
+            } else {
+                val filtered = if (query.isBlank()) list
+                else list.filter { it.label.contains(query, ignoreCase = true) }
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 440.dp)) {
+                    items(filtered, key = { it.pkg }) { app ->
+                        val checked = app.pkg in Prefs.excludedApps
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    val s = Prefs.excludedApps.toMutableSet()
+                                    if (checked) s.remove(app.pkg) else s.add(app.pkg)
+                                    Prefs.saveExcludedApps(s)
+                                }
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (app.icon != null) {
+                                Image(
+                                    bitmap = app.icon,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(34.dp).clip(RoundedCornerShape(8.dp))
+                                )
+                            } else {
+                                Box(Modifier.size(34.dp).clip(RoundedCornerShape(8.dp)).background(Track))
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(app.label, color = TextCol, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(app.pkg, color = Dim, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            Checkbox(
+                                checked = checked,
+                                onCheckedChange = null,
+                                colors = CheckboxDefaults.colors(checkedColor = Accent, uncheckedColor = Dim)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(10.dp))
+            TextButton(onClick = onDismiss) { Text("Done", color = Accent) }
+            Spacer(Modifier.height(12.dp))
+        }
+    }
+}
+
+private fun loadLaunchableApps(ctx: Context): List<AppEntry> {
+    val pm = ctx.packageManager
+    val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+    val infos = pm.queryIntentActivities(intent, 0)
+        .mapNotNull { it.activityInfo?.applicationInfo }
+        .distinctBy { it.packageName }
+        .filter { it.packageName != ctx.packageName }
+    return infos.mapNotNull { ai ->
+        try {
+            AppEntry(
+                pkg = ai.packageName,
+                label = pm.getApplicationLabel(ai).toString(),
+                icon = ai.loadIcon(pm).toBitmap(96, 96).asImageBitmap()
+            )
+        } catch (_: Throwable) { null }
+    }.sortedBy { it.label.lowercase() }
+}
+
+// ---------------------------------------------------------------- diagnostics
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -740,7 +1154,81 @@ private fun InfoPill(label: String, value: String, modifier: Modifier = Modifier
     }
 }
 
-// ---------------------------------------------------------------- helpers
+// ---------------------------------------------------------------- shared bits
+
+@Composable
+private fun SearchField(query: String, onValueChange: (String) -> Unit, placeholder: String = "Search country") {
+    OutlinedTextField(
+        value = query,
+        onValueChange = onValueChange,
+        modifier = Modifier.fillMaxWidth(),
+        placeholder = { Text(placeholder, color = Dim) },
+        leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = Dim) },
+        singleLine = true,
+        shape = RoundedCornerShape(14.dp),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = Accent,
+            unfocusedBorderColor = CardBorder,
+            focusedContainerColor = BgTop,
+            unfocusedContainerColor = BgTop,
+            cursorColor = Accent,
+            focusedTextColor = TextCol,
+            unfocusedTextColor = TextCol
+        )
+    )
+}
+
+@Composable
+private fun SectionHeader(text: String) {
+    Text(
+        text, color = Dim, fontSize = 9.sp,
+        letterSpacing = 1.4.sp, fontWeight = FontWeight.Medium,
+        modifier = Modifier.padding(start = 4.dp, top = 10.dp, bottom = 8.dp)
+    )
+}
+
+private fun restartIfRunning(ctx: Context) {
+    if (TunnelState.phase == TunnelState.Phase.Connected ||
+        TunnelState.phase == TunnelState.Phase.Starting) {
+        ctx.startForegroundService(
+            Intent(ctx, TunnelService::class.java).apply { action = TunnelService.ACTION_REGION }
+        )
+        TunnelState.log("[ui] reconnecting to apply new settings")
+    }
+}
+
+private fun openVpnSettings(ctx: Context) {
+    try {
+        ctx.startActivity(
+            Intent(android.provider.Settings.ACTION_VPN_SETTINGS)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    } catch (_: Throwable) {
+        try {
+            ctx.startActivity(
+                Intent(android.provider.Settings.ACTION_SETTINGS)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        } catch (_: Throwable) { }
+    }
+}
+
+private fun shareLog(ctx: Context) {
+    try {
+        val file = java.io.File(ctx.cacheDir, "tunnelwind-diagnostics.txt")
+        file.writeText(TunnelState.logs.joinToString("\n"))
+        val uri = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".files", file)
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        ctx.startActivity(Intent.createChooser(send, "Share diagnostics")
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    } catch (_: Throwable) {
+        TunnelState.log("[ui] could not share diagnostics")
+    }
+}
 
 @Composable
 private fun appVersion(): String {
