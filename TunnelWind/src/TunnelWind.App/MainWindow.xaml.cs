@@ -52,7 +52,9 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _sessionTimer;
     private DateTime _connectedAt;
     private bool _measuring;
-    private System.Drawing.Icon? _trayIcon;
+    private System.Drawing.Icon? _trayIconOff;
+    private System.Drawing.Icon? _trayIconBusy;
+    private System.Drawing.Icon? _trayIconOn;
 
     public MainWindow()
     {
@@ -273,6 +275,7 @@ public partial class MainWindow : Window
 
         UpdatePorts();
         UpdateConnectionCard();
+        UpdateTrayState(state);
     }
 
     private void UpdatePorts()
@@ -793,20 +796,44 @@ public partial class MainWindow : Window
         catch { }
     }
 
-    private System.Drawing.Icon LoadTrayIcon()
+    private System.Drawing.Icon LoadTrayIcon(string file)
     {
+        var size = System.Windows.Forms.SystemInformation.SmallIconSize;
         try
         {
-            if (IoFile.Exists(AppIconPath))
+            var path = IoPath.Combine(AppContext.BaseDirectory, file);
+            if (IoFile.Exists(path))
             {
-                var size = System.Windows.Forms.SystemInformation.SmallIconSize;
-                _trayIcon = new System.Drawing.Icon(AppIconPath, size);
-                return _trayIcon;
+                return new System.Drawing.Icon(path, size);
             }
         }
         catch { }
-        _trayIcon = System.Drawing.SystemIcons.Shield;
-        return _trayIcon;
+        return new System.Drawing.Icon(System.Drawing.SystemIcons.Shield, size);
+    }
+
+    /// <summary>Swap the tray icon + tooltip to match the tunnel state.</summary>
+    private void UpdateTrayState(TunnelState state)
+    {
+        if (_tray == null) return;
+        try
+        {
+            _tray.Icon = state switch
+            {
+                TunnelState.Connected => _trayIconOn ?? _trayIconOff,
+                TunnelState.Starting or TunnelState.Stopping => _trayIconBusy ?? _trayIconOff,
+                _ => _trayIconOff,
+            };
+            _tray.Text = state switch
+            {
+                TunnelState.Connected =>
+                    "Tunnel Wind — Protected" +
+                    (string.IsNullOrEmpty(_tunnel.ConnectedRegion) ? "" : " (" + _tunnel.ConnectedRegion + ")"),
+                TunnelState.Starting => "Tunnel Wind — Connecting…",
+                TunnelState.Stopping => "Tunnel Wind — Disconnecting…",
+                _ => "Tunnel Wind — Not connected",
+            };
+        }
+        catch { }
     }
 
     // ---------------------------------------------------------------- tray / close
@@ -824,11 +851,15 @@ public partial class MainWindow : Window
             _menu.Items.Add("-");
             _menu.Items.Add("Exit").Click += (_, _) => ExitFromTray();
 
+            _trayIconOff = LoadTrayIcon("tray_off.ico");
+            _trayIconBusy = LoadTrayIcon("tray_busy.ico");
+            _trayIconOn = LoadTrayIcon("tray_on.ico");
+
             _tray = new System.Windows.Forms.NotifyIcon
             {
                 Text = "Tunnel Wind",
                 Visible = true,
-                Icon = LoadTrayIcon(),
+                Icon = _trayIconOff,
                 ContextMenuStrip = _menu,
             };
             _tray.DoubleClick += (_, _) => ShowFromTray();
@@ -879,8 +910,10 @@ public partial class MainWindow : Window
         try { if (SystemProxy.IsCurrentlySet) SystemProxy.Restore(); } catch { }
         _tray?.Dispose();
         _tray = null;
-        _trayIcon?.Dispose();
-        _trayIcon = null;
+        _trayIconOff?.Dispose();
+        _trayIconBusy?.Dispose();
+        _trayIconOn?.Dispose();
+        _trayIconOff = _trayIconBusy = _trayIconOn = null;
     }
 
     // ---------------------------------------------------------------- helpers
