@@ -339,16 +339,39 @@ class TunnelService : VpnService(), PsiphonProvider {
         TunnelState.update { phase = TunnelState.Phase.Stopping }
         TunnelState.log("stopping...")
         scope.launch {
-            if (isEngineStarted()) {
-                try { Psi.stop() } catch (_: Throwable) { }   // blocks until fully stopped
-                markStopped()
-            }
+            stopEngineWithTimeout()
             withContext(Dispatchers.Main) { teardown() }
         }
     }
 
+    /**
+     * Psi.stop() blocks until the controller is fully down, but it must never be
+     * able to hold the VPN interface open forever. Run it on a helper thread and
+     * give up after [timeoutMs] so teardown always releases the tun.
+     */
+    private fun stopEngineWithTimeout(timeoutMs: Long = 15_000) {
+        if (!isEngineStarted()) return
+        try {
+            val t = Thread {
+                try { Psi.stop() } catch (_: Throwable) { }
+            }
+            t.isDaemon = true
+            t.start()
+            t.join(timeoutMs)
+        } catch (_: Throwable) { }
+        markStopped()
+    }
+
     private fun teardown() {
         running = false
+        // Drop the VpnService descriptor so the interface is released even if the
+        // engine is already gone. The engine holds its own dup'ed fd, so this is
+        // safe while it is still running.
+        try {
+            val fd = tunFdFd
+            if (fd >= 0) android.os.ParcelFileDescriptor.adoptFd(fd).close()
+        } catch (_: Throwable) { }
+        tunFdFd = -1
         tunFd = null
         TunnelState.update {
             phase = TunnelState.Phase.Stopped
@@ -360,19 +383,38 @@ class TunnelService : VpnService(), PsiphonProvider {
         stopSelf()
     }
 
+    /**
+     * The user swiped the app out of Recents.
+     *
+     * The tunnel keeps running (a VPN is expected to protect the whole phone even
+     * when its UI is closed). The old bug - VPN icon stuck with no internet - came
+     * from the detached tun fd staying open after DISCONNECT, which this service
+     * now releases in teardown().
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        TunnelState.log("[service] removed from recents (tunnel kept running)")
+        if (!running) stopSelf()
+        super.onTaskRemoved(rootIntent)
+    }
+
     override fun onRevoke() {
         TunnelState.log("[vpn] revoked by system")
         scope.launch {
-            if (isEngineStarted()) {
-                try { Psi.stop() } catch (_: Throwable) { }
-                markStopped()
-            }
+            stopEngineWithTimeout()
             withContext(Dispatchers.Main) { teardown() }
         }
         super.onRevoke()
     }
 
     override fun onDestroy() {
+        // Last line of defence: never leave a live engine behind a dead service.
+        if (isEngineStarted()) {
+            try {
+                Thread {
+                    try { Psi.stop() } catch (_: Throwable) { }
+                }.start()
+            } catch (_: Throwable) { }
+        }
         tunFd = null
         super.onDestroy()
     }
