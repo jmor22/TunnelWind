@@ -74,3 +74,7 @@ tools/*.java
 
 # local toolchain (adb, gradle, dotnet, gh) - never commit
 tools/
+
+# Android release signing (local only - losing this keystore means the app can no longer be updated in place)
+TunnelWind/mobile/keystore/
+TunnelWind/mobile/keystore.properties

@@ -123,6 +123,17 @@ gradle :app:assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
+For a shareable build, add `keystore.properties` (gitignored) pointing at your
+release keystore; `gradle :app:assembleRelease` then produces a signed,
+**arm64-v8a only** APK (~41 MB instead of ~135 MB):
+
+```
+storeFile=keystore/tunnelwind-release.jks
+storePassword=...
+keyAlias=tunnelwind
+keyPassword=...
+```
+
 ## Security notes
 
 * The system proxy is flipped on only when the tunnel is up. Every Prepare → Apply
