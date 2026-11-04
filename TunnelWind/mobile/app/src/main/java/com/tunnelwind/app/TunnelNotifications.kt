@@ -28,12 +28,18 @@ object TunnelNotifications {
         val open = PendingIntent.getActivity(
             context, 0, Intent(context, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val disconnect = PendingIntent.getForegroundService(
+            context, 1,
+            Intent(context, TunnelService::class.java).setAction(TunnelService.ACTION_STOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(context, CHANNEL_ID)
             .setContentTitle(context.getString(R.string.notif_title))
             .setContentText(context.getString(R.string.notif_body))
             .setSmallIcon(R.drawable.ic_launcher)
             .setOngoing(true)
             .setContentIntent(open)
+            .addAction(0, "Disconnect", disconnect)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setCategory(Notification.CATEGORY_SERVICE)
             .build()
     }

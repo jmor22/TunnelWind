@@ -82,8 +82,14 @@ Runtime prerequisites are already inside the portable bundle; no system installs
 ## Android client (`TunnelWind/mobile`)
 
 <p align="center">
-  <img src="docs/mobile-connected.png" width="300" />
+  <img src="docs/ui-disconnected.png" width="220" />
+  &nbsp;&nbsp;
+  <img src="docs/ui-connected.png" width="220" />
+  &nbsp;&nbsp;
+  <img src="docs/ui-servers.png" width="220" />
 </p>
+
+<p align="center"><em>Disconnected · Protected (hero power control, live session/traffic stats) · server picker sheet</em></p>
 
 A native Kotlin/Compose VpnService client around the **official Psiphon Android
 library** (`psiphontunnel`, engine `psiphon-tunnel-core` c4a09096ab / v2.0.42).
@@ -96,7 +102,7 @@ which gives full control over bootstrap and provider callbacks.
 | DNS | Real uplink resolvers are captured before the tun hides them and handed to the engine (`GetDNSServersAsString`); the tun itself advertises the official transparent-DNS router address |
 | Tun | Official Psiphon addressing scheme: private subnet with a **different** DNS address (e.g. `172.16.0.1/12`, DNS `172.16.0.2`) so DNS packets actually enter the tunnel |
 | Engine sockets | `useDeviceBinder=true` → engine calls `bindToDevice`, host answers `VpnService.protect()`; mandatory in VPN mode |
-| UI | Compose: connect card, live status, traffic counters, region chips from `AvailableEgressRegions`, split-tunnel-by-own-region toggle, connection log |
+| UI | Compose, Nord-style: hero shield/power control with animated ring, one status line, searchable server sheet, session/upload/download stats, split-tunnel switch, diagnostics sheet (ports + engine log) |
 | Resilience | 180 s connect watchdog (auto-disconnect restores internet), battery-optimisation exemption request, crash log persisted for the next launch |
 
 Built and verified on a Galaxy S21 FE (Android 16): 429 server entries imported,

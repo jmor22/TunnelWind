@@ -73,6 +73,10 @@ class TunnelService : VpnService(), PsiphonProvider {
     // DNS from the real uplink, captured BEFORE the tun hides it (see readUpstreamDns).
     @Volatile private var upstreamDns: String = ""
 
+    // true while we stop the engine on purpose to apply new settings; the
+    // engine's "Exiting" notice must not run the full teardown in that case.
+    @Volatile private var restarting: Boolean = false
+
     // tun subnet chosen at establish time (see selectTunNet)
     @Volatile private var tunNet = TunNet("10.0.0.1", "10.0.0.0", 8, "10.0.0.2")
 
@@ -332,7 +336,23 @@ class TunnelService : VpnService(), PsiphonProvider {
     }
 
     private fun restartWithNewRegion() {
-        stopTunnelInternal()
+        // Region / split-tunnel change while connected: stop the engine, release
+        // the tun, then start again with the new config (no need to stopSelf).
+        scope.launch {
+            TunnelState.update { phase = TunnelState.Phase.Stopping }
+            TunnelState.log("applying new settings, reconnecting...")
+            restarting = true
+            try {
+                stopEngineWithTimeout()
+            } finally {
+                restarting = false
+            }
+            withContext(Dispatchers.Main) {
+                releaseTunResources()
+                TunnelState.update { phase = TunnelState.Phase.Stopped }
+            }
+            startTunnel()
+        }
     }
 
     private fun stopTunnelInternal() {
@@ -363,16 +383,7 @@ class TunnelService : VpnService(), PsiphonProvider {
     }
 
     private fun teardown() {
-        running = false
-        // Drop the VpnService descriptor so the interface is released even if the
-        // engine is already gone. The engine holds its own dup'ed fd, so this is
-        // safe while it is still running.
-        try {
-            val fd = tunFdFd
-            if (fd >= 0) android.os.ParcelFileDescriptor.adoptFd(fd).close()
-        } catch (_: Throwable) { }
-        tunFdFd = -1
-        tunFd = null
+        releaseTunResources()
         TunnelState.update {
             phase = TunnelState.Phase.Stopped
             connectedRegion = null; activeProtocol = null
@@ -381,6 +392,21 @@ class TunnelService : VpnService(), PsiphonProvider {
         TunnelState.log("disconnected")
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
+    }
+
+    /**
+     * Drops the VpnService descriptor so the interface is released even if the
+     * engine is already gone. The engine holds its own dup'ed fd, so this is
+     * safe while it is still running.
+     */
+    private fun releaseTunResources() {
+        running = false
+        try {
+            val fd = tunFdFd
+            if (fd >= 0) android.os.ParcelFileDescriptor.adoptFd(fd).close()
+        } catch (_: Throwable) { }
+        tunFdFd = -1
+        tunFd = null
     }
 
     /**
@@ -493,7 +519,11 @@ class TunnelService : VpnService(), PsiphonProvider {
     /** engine notice line - WE parse it (tolerant to any data shape) */
     override fun notice(noticeJson: String?) {
         if (noticeJson == null) return
-        TunnelState.log(noticeJson.take(300))
+        // BytesTransferred arrives once per second; it only feeds the counters,
+        // so keep it out of the connection log.
+        if (!noticeJson.contains("\"noticeType\":\"BytesTransferred\"")) {
+            TunnelState.log(noticeJson.take(300))
+        }
         try {
             val root = JSONObject(noticeJson)
             val noticeType = root.optString("noticeType")
@@ -546,10 +576,14 @@ class TunnelService : VpnService(), PsiphonProvider {
                 }
                 "Exiting" -> {
                     // the engine controller is shutting down (self-initiated or error)
-                    TunnelState.log("[state] engine exiting")
-                    markStopped()
-                    TunnelState.update { phase = TunnelState.Phase.Stopped }
-                    teardown()
+                    if (restarting) {
+                        TunnelState.log("[state] engine exiting (applying new settings)")
+                    } else {
+                        TunnelState.log("[state] engine exiting")
+                        markStopped()
+                        TunnelState.update { phase = TunnelState.Phase.Stopped }
+                        teardown()
+                    }
                 }
                 "Info", "Warning" -> {
                     val msg = data?.optString("message", "") ?: ""
