@@ -52,11 +52,14 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _sessionTimer;
     private DateTime _connectedAt;
     private bool _measuring;
+    private System.Drawing.Icon? _trayIcon;
 
     public MainWindow()
     {
         InitializeComponent();
         _settings = Settings.Load();
+
+        ApplyAppIcon();
 
         _sessionTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _sessionTimer.Tick += (_, _) => UpdateSession();
@@ -774,6 +777,38 @@ public partial class MainWindow : Window
 
     private void AppendNotice(string notice) => AppendLog($"[notice] {notice}");
 
+    // ---------------------------------------------------------------- icons
+
+    private string AppIconPath => IoPath.Combine(AppContext.BaseDirectory, "app.ico");
+
+    private void ApplyAppIcon()
+    {
+        try
+        {
+            if (IoFile.Exists(AppIconPath))
+            {
+                Icon = new System.Windows.Media.Imaging.BitmapImage(new Uri(AppIconPath));
+            }
+        }
+        catch { }
+    }
+
+    private System.Drawing.Icon LoadTrayIcon()
+    {
+        try
+        {
+            if (IoFile.Exists(AppIconPath))
+            {
+                var size = System.Windows.Forms.SystemInformation.SmallIconSize;
+                _trayIcon = new System.Drawing.Icon(AppIconPath, size);
+                return _trayIcon;
+            }
+        }
+        catch { }
+        _trayIcon = System.Drawing.SystemIcons.Shield;
+        return _trayIcon;
+    }
+
     // ---------------------------------------------------------------- tray / close
 
     private void BuildTray()
@@ -793,7 +828,7 @@ public partial class MainWindow : Window
             {
                 Text = "Tunnel Wind",
                 Visible = true,
-                Icon = System.Drawing.SystemIcons.Shield,
+                Icon = LoadTrayIcon(),
                 ContextMenuStrip = _menu,
             };
             _tray.DoubleClick += (_, _) => ShowFromTray();
@@ -844,6 +879,8 @@ public partial class MainWindow : Window
         try { if (SystemProxy.IsCurrentlySet) SystemProxy.Restore(); } catch { }
         _tray?.Dispose();
         _tray = null;
+        _trayIcon?.Dispose();
+        _trayIcon = null;
     }
 
     // ---------------------------------------------------------------- helpers
