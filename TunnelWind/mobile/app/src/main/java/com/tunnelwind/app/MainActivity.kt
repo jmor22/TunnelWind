@@ -637,6 +637,9 @@ private fun ServersScreen(onPicked: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var query by remember { mutableStateOf("") }
+    // The engine only allows regions it reports as egress regions. The signed
+    // list contains a few more (BE/BR/LT/RO with 1-2 servers) but the engine
+    // refuses to dial them, so they are intentionally not offered.
     val regions = TunnelState.availableRegions.ifEmpty { Prefs.cachedRegions }
     val selected = Prefs.region
     val favorites = Prefs.favorites
@@ -753,7 +756,9 @@ private fun ServerRowItem(code: String, selected: String, onPicked: () -> Unit, 
                 CountryName(code), color = TextCol, fontSize = 15.sp,
                 fontWeight = if (code == selected) FontWeight.SemiBold else FontWeight.Normal
             )
-            Text(code, color = Dim, fontSize = 11.sp)
+            Text(
+                code, color = Dim, fontSize = 11.sp
+            )
         }
         if (code == selected) {
             Icon(Icons.Rounded.Check, contentDescription = null, tint = Accent, modifier = Modifier.size(18.dp))
