@@ -35,6 +35,9 @@ public sealed class TunnelConfig
     [JsonPropertyName("EgressRegion")] public string EgressRegion { get; set; } = "";
     [JsonPropertyName("DeviceRegion")] public string? DeviceRegion { get; set; }
 
+    // Transport lock (empty/null = let the engine race every protocol)
+    [JsonPropertyName("LimitTunnelProtocols")] public string[]? LimitTunnelProtocols { get; set; }
+
     // Split tunneling
     [JsonPropertyName("SplitTunnelOwnRegion")] public bool? SplitTunnelOwnRegion { get; set; }
     [JsonPropertyName("SplitTunnelRegions")] public string[]? SplitTunnelRegions { get; set; }

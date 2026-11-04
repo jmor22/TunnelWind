@@ -1,12 +1,12 @@
 # 🌬 Tunnel Wind
 
 <p align="center">
-  <img src="TunnelWind/docs/img/screenshot-disconnected.png" width="240" />
-  &nbsp;&nbsp;&nbsp;
-  <img src="TunnelWind/docs/img/screenshot-connected.png" width="240" />
+  <img src="TunnelWind/docs/img/screenshot-disconnected.png" width="460" />
+  &nbsp;&nbsp;
+  <img src="TunnelWind/docs/img/screenshot-connected.png" width="460" />
 </p>
 
-<p align="center"><em>Left: main window (disconnected). Right: live tunnel — <b>Connected · INPROXY-WEBRTC-OSSH · IT</b>, HTTP+SOCKS ports, region chips with IT selected, split-tunnel toggle.</em></p>
+<p align="center"><em>Left: desktop client, not connected. Right: protected through Italy (<b>INPROXY-WEBRTC-OSSH</b>) with the Windows system proxy applied, live ports and session stats.</em></p>
 
 A modern, open Windows client built on top of the **psiphon-tunnel-core** engine.
 This project was created by reverse engineering the complete architecture of the
@@ -34,18 +34,18 @@ every part around it in clean, auditable code.
 | Engine | Spawns `psiphon-tunnel-core` as a subprocess with a config file; notices streamed on stderr and parsed into UI state |
 | Bootstrap | Pre-fetches the remote server list over standard Windows TLS (SChannel) and writes it into the engine's own datastore — engine validates RSA list + Ed25519 per-entry signatures as it would with its own download |
 | Trust anchors | All the public distribution constants recovered from the shipped client (`Bootstrap.cs`) |
-| Region picker | Chip grid populated live from engine `AvailableEgressRegions` notices; instant hot-restart on chip click |
+| Servers | Searchable country browser with favorites (★), recents and per-region latency (TCP probe over the real uplink); selection hot-restarts the tunnel |
 | Split tunnel | Per-country bypass via `SplitTunnelOwnRegion` / `SplitTunnelRegions`, plus an editable list |
 | System proxy | WinInet user-scope proxy with crash-safe backup / restore, stale-proxy guard at startup, LAN exposure (`ListenInterface: any`) |
 | Update channel | Manifest-driven `update.json` (`appVersion`, `appUrl`, `appSha256`, `engineUrl`, `engineSha256`); SHA-256-verified swap of engine (pin rotation) and app (rename dance) |
 | Hardening | Engine hash pinning (`engine.sha256`), orphan sweep, kill-mode (proxy restore on engine death), single-instance mutex |
 | Tray | Live tray icon with context menu (Show / Connect / Disconnect / Exit), close-to-tray, balloon notifications |
-| UX | Fixed local ports (default `8080` HTTP / `1080` SOCKS) or auto, per-country egress, traffic counters, "start with Windows", autostart toggle, real settings window |
+| UX | Desktop shell (1120×720 custom chrome, sidebar navigation, hero status, in-app settings), protocol lock (SSH / OSSH / TLS-OSSH / QUIC-OSSH / Meek), fixed or automatic local ports, traffic counters, "start with Windows" |
 
 ## Layout
 
-> **Releases:** prebuilt `v1.1.2` app packages (x64 + ARM64, framework-dependent) live at
-> <https://github.com/jmor22/TunnelWind/releases/tag/v1.1.2>. The engine is **not** shipped in
+> **Releases:** prebuilt `v1.2.0` app packages (x64 + ARM64, framework-dependent) live at
+> <https://github.com/jmor22/TunnelWind/releases/tag/v1.2.0>. The engine is **not** shipped in
 > releases — obtain your own legitimate copy of Psiphon and run
 > [`TunnelWind/update/refresh-engine.ps1`](TunnelWind/update/refresh-engine.ps1) to extract and
 > install the engine locally (it also pins and verifies the hash every time).

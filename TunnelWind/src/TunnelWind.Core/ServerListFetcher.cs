@@ -66,6 +66,24 @@ public static class ServerListFetcher
         return (false, lastError);
     }
 
+    /// <summary>
+    /// Reads the server list we previously stored in the engine datastore and
+    /// returns its hex entry list (used for the latency probe).
+    /// </summary>
+    public static string? TryReadStoredHexList()
+    {
+        try
+        {
+            var path = EngineStorePath;
+            if (!File.Exists(path)) return null;
+            var text = DecompressZlib(File.ReadAllBytes(path));
+            if (text == null) return null;
+            using var doc = JsonDocument.Parse(text);
+            return doc.RootElement.TryGetProperty("data", out var data) ? data.GetString() : null;
+        }
+        catch { return null; }
+    }
+
     private static string? DecompressZlib(byte[] data)
     {
         if (data.Length < 3 || data[0] != 0x78) return null;

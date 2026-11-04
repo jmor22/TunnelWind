@@ -30,6 +30,52 @@ public sealed class Settings
     public string UpdateManifestUrl { get; set; } = "";
     public string ServerListHex { get; set; } = "";
 
+    // Transport lock: auto (default) or a specific engine protocol family
+    public string Protocol { get; set; } = "auto";
+
+    // Server browser state (CSV of ISO codes)
+    public string FavoriteRegionsCsv { get; set; } = "";
+    public string RecentRegionsCsv { get; set; } = "";
+    public string CachedRegionsCsv { get; set; } = "";
+
+    [JsonIgnore]
+    public string[] FavoriteRegions => SplitCodes(FavoriteRegionsCsv);
+
+    [JsonIgnore]
+    public string[] RecentRegions => SplitCodes(RecentRegionsCsv);
+
+    [JsonIgnore]
+    public string[] CachedRegions => SplitCodes(CachedRegionsCsv);
+
+    private static string[] SplitCodes(string csv) =>
+        (csv ?? "")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(s => s.ToUpperInvariant())
+            .Where(s => s.Length == 2 && s.All(char.IsLetter))
+            .Distinct()
+            .ToArray();
+
+    /// <summary>Engine LimitTunnelProtocols value; empty array = automatic.</summary>
+    public string[] ProtocolList() => Protocol switch
+    {
+        "ssh" => ["SSH"],
+        "ossh" => ["OSSH"],
+        "tls" => ["TLS-OSSH"],
+        "quic" => ["QUIC-OSSH"],
+        "meek" => ["FRONTED-MEEK-OSSH", "FRONTED-MEEK-HTTP-OSSH", "FRONTED-MEEK-QUIC-OSSH", "UNFRONTED-MEEK-OSSH"],
+        _ => [],
+    };
+
+    public string ProtocolLabel() => Protocol switch
+    {
+        "ssh" => "SSH only",
+        "ossh" => "OSSH only",
+        "tls" => "TLS-OSSH only",
+        "quic" => "QUIC-OSSH only",
+        "meek" => "Meek (fronted)",
+        _ => "Automatic",
+    };
+
     /// <summary>Parsed ID list of countries to bypass (empty when unset).</summary>
     [JsonIgnore]
     public string[] SplitTunnelRegions =>
@@ -204,6 +250,7 @@ public sealed class TunnelManager : IDisposable
             SplitTunnelOwnRegion = settings.SplitTunnelOwnRegion ? true : null,
             SplitTunnelRegions = (settings.SplitTunnelRegions is { Length: > 0 } list) ? list : null,
             UpstreamProxyUrl = string.IsNullOrWhiteSpace(settings.UpstreamProxyUrl) ? null : settings.UpstreamProxyUrl,
+            LimitTunnelProtocols = settings.ProtocolList() is { Length: > 0 } protos ? protos : null,
         };
 
         // tunnel-core contract (verified by probe): config file via --config,
