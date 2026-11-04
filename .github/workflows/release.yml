@@ -44,7 +44,7 @@ jobs:
       - name: create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          name: "Tunnel Wind ${{ steps.ver.outputs.ver }}"
+          name: "Tunnel Wind ${{ github.ref_name }}"
           body_path: hashes.txt
           files: |
             TunnelWind_*_win-x64.zip
