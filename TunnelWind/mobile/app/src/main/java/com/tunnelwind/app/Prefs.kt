@@ -33,6 +33,10 @@ object Prefs {
     var cachedRegions by mutableStateOf<List<String>>(emptyList())
         private set
 
+    /** first-run onboarding completed */
+    var onboarded by mutableStateOf(false)
+        private set
+
     fun init(ctx: Context) {
         if (::sp.isInitialized) return
         sp = ctx.applicationContext.getSharedPreferences("tw_prefs", Context.MODE_PRIVATE)
@@ -44,6 +48,7 @@ object Prefs {
         splitRegions = sp.getStringSet("split_regions", emptySet())?.toSet() ?: emptySet()
         excludedApps = sp.getStringSet("excluded_apps", emptySet())?.toSet() ?: emptySet()
         cachedRegions = (sp.getString("cached_regions", "") ?: "").split(",").filter { it.isNotBlank() }
+        onboarded = sp.getBoolean("onboarded", false)
     }
 
     // ---------------------------------------------------------------- writers
@@ -90,6 +95,11 @@ object Prefs {
     fun saveCachedRegions(list: List<String>) {
         cachedRegions = list
         sp.edit().putString("cached_regions", list.joinToString(",")).apply()
+    }
+
+    fun setOnboarded() {
+        onboarded = true
+        sp.edit().putBoolean("onboarded", true).apply()
     }
 
     // ---------------------------------------------------------------- engine view

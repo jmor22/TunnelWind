@@ -35,7 +35,7 @@ object TunnelNotifications {
         return NotificationCompat.Builder(context, CHANNEL_ID)
             .setContentTitle(context.getString(R.string.notif_title))
             .setContentText(context.getString(R.string.notif_body))
-            .setSmallIcon(R.drawable.ic_launcher)
+            .setSmallIcon(R.drawable.ic_notification)
             .setOngoing(true)
             .setContentIntent(open)
             .addAction(0, "Disconnect", disconnect)

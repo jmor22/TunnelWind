@@ -13,7 +13,8 @@
     <application
         android:name=".TunnelWindApp"
         android:allowBackup="false"
-        android:icon="@drawable/ic_launcher"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:theme="@style/Theme.TunnelWind"
         tools:targetApi="35">
@@ -21,7 +22,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:theme="@style/Theme.TunnelWind">
+            android:theme="@style/Theme.TunnelWind.Splash">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -39,6 +40,17 @@
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Tunnel Wind VPN foreground service" />
+        </service>
+
+        <service
+            android:name=".TunnelTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_notification"
+            android:label="Tunnel Wind"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
         </service>
 
         <provider

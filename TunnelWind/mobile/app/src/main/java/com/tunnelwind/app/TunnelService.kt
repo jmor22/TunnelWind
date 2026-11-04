@@ -160,6 +160,7 @@ class TunnelService : VpnService(), PsiphonProvider {
             if (phase != TunnelState.Phase.Stopped) return@update
             phase = TunnelState.Phase.Starting
         }
+        TunnelTileService.requestUpdate(this)
         TunnelState.log("starting VPN service (direct Go binding)...")
         TunnelState.log(
             "[cfg] region=" + Prefs.region.ifEmpty { "auto" } +
@@ -533,6 +534,7 @@ class TunnelService : VpnService(), PsiphonProvider {
             reconnectAttempt = 0
         }
         TunnelState.log("disconnected")
+        TunnelTileService.requestUpdate(this)
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -709,6 +711,7 @@ class TunnelService : VpnService(), PsiphonProvider {
                             reconnectAttempt = 0
                         }
                         TunnelState.log("[state] tunnel up")
+                        TunnelTileService.requestUpdate(this@TunnelService)
                     } else if (TunnelState.phase == TunnelState.Phase.Connected) {
                         TunnelState.update { phase = TunnelState.Phase.Starting }
                     }

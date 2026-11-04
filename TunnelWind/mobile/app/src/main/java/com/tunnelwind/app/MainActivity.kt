@@ -57,6 +57,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.tunnelwind.app.ui.CountryName
 import com.tunnelwind.app.ui.flagEmoji
 import kotlinx.coroutines.Dispatchers
@@ -105,6 +106,7 @@ class MainActivity : ComponentActivity() {
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
@@ -125,8 +127,12 @@ class MainActivity : ComponentActivity() {
         // system can kill the VPN process while browsing in another app.
         requestBatteryExemptionOnce()
         setContent {
-            MaterialTheme(colorScheme = TwScheme) {
-                TunnelWindUi(::connectPressed, ::stopPressed)
+            MaterialTheme(colorScheme = TwScheme, typography = TwTypography) {
+                if (!Prefs.onboarded) {
+                    OnboardingScreen(onDone = { Prefs.setOnboarded() })
+                } else {
+                    TunnelWindUi(::connectPressed, ::stopPressed)
+                }
             }
         }
     }
@@ -163,9 +169,96 @@ class MainActivity : ComponentActivity() {
 
 // ---------------------------------------------------------------- root
 
+private data class OnboardPage(val emoji: String, val title: String, val body: String)
+
+@Composable
+private fun OnboardingScreen(onDone: () -> Unit) {
+    var step by remember { mutableIntStateOf(0) }
+    val pages = listOf(
+        OnboardPage(
+            "\uD83C\uDF10",
+            "Welcome to Tunnel Wind",
+            "A private, uncensored connection built on the Psiphon network."
+        ),
+        OnboardPage(
+            "\u26A1",
+            "One tap to protect",
+            "The engine picks the fastest server automatically. Prefer a specific country? Pick one from Servers."
+        ),
+        OnboardPage(
+            "\uD83D\uDD12",
+            "Two permissions",
+            "Android will ask for VPN access (required) and notifications (so you can see the tunnel state). Allow both when prompted."
+        )
+    )
+    val page = pages[step]
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Brush.verticalGradient(listOf(BgTop, BgBottom)))
+    ) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.systemBars)
+                .padding(horizontal = 28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Spacer(Modifier.weight(0.6f))
+            Text(page.emoji, fontSize = 64.sp)
+            Spacer(Modifier.height(28.dp))
+            Text(
+                page.title, color = TextCol, fontSize = 27.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+            Spacer(Modifier.height(14.dp))
+            Text(
+                page.body, color = Dim, fontSize = 14.sp,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                lineHeight = 21.sp
+            )
+            Spacer(Modifier.weight(1f))
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                pages.indices.forEach { i ->
+                    Box(
+                        Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(if (i == step) Accent else Track)
+                    )
+                }
+            }
+            Spacer(Modifier.height(24.dp))
+
+            Button(
+                onClick = {
+                    if (step < pages.lastIndex) step++
+                    else { Prefs.setOnboarded(); onDone() }
+                },
+                modifier = Modifier.fillMaxWidth().height(54.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Accent, contentColor = Color.White
+                )
+            ) {
+                Text(
+                    if (step < pages.lastIndex) "Continue" else "Get started",
+                    fontSize = 15.sp, fontWeight = FontWeight.SemiBold
+                )
+            }
+            Spacer(Modifier.height(28.dp))
+        }
+    }
+}
+
 @Composable
 fun TunnelWindUi(onConnect: () -> Unit, onStop: () -> Unit) {
-    var tab by rememberSaveable { mutableStateOf(0) }
+    // plain remember: the app should always open on Home (saved state made it
+    // restore e.g. the Servers tab after an update/onboarding)
+    var tab by remember { mutableIntStateOf(0) }
     var showDiagnostics by remember { mutableStateOf(false) }
 
     Box(

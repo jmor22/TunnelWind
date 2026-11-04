@@ -12,8 +12,8 @@ android {
         applicationId = "com.tunnelwind.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 29
-        versionName = "1.10.0"
+        versionCode = 30
+        versionName = "1.11.0"
     }
 
     buildTypes {
@@ -43,6 +43,7 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
     implementation("androidx.activity:activity-compose:1.9.3")
+    implementation("androidx.core:core-splashscreen:1.0.1")
 
     val composeBom = platform("androidx.compose:compose-bom:2024.10.00")
     implementation(composeBom)
