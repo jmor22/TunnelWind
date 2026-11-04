@@ -103,7 +103,7 @@ which gives full control over bootstrap and provider callbacks.
 | Tun | Official Psiphon addressing scheme: private subnet with a **different** DNS address (e.g. `172.16.0.1/12`, DNS `172.16.0.2`) so DNS packets actually enter the tunnel |
 | Engine sockets | `useDeviceBinder=true` → engine calls `bindToDevice`, host answers `VpnService.protect()`; mandatory in VPN mode |
 | UI | Compose, Nord-style: hero shield/power control with animated ring, one status line, searchable server sheet, session/upload/download stats, split-tunnel switch, diagnostics sheet (ports + engine log) |
-| Resilience | 180 s connect watchdog (auto-disconnect restores internet), battery-optimisation exemption request, crash log persisted for the next launch |
+| Resilience | 180 s connect watchdog, auto-reconnect (3 attempts with backoff) when the engine exits unexpectedly, uplink-change detection (`Psi.networkChanged()`), kill switch (tun traffic dropped while connecting/stopping), battery-optimisation exemption request, crash log persisted for the next launch |
 
 Built and verified on a Galaxy S21 FE (Android 16): 429 server entries imported,
 21 egress regions, real protocol dials (SSH/OSSH/TLS/QUIC/meek/WebRTC),

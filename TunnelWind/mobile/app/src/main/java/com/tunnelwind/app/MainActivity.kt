@@ -338,8 +338,12 @@ private fun StatusBlock() {
             TunnelState.connectedRegion?.let { CountryName(it) + " \u00B7 Automatic" }
                 ?: "Tunnel is active"
         TunnelState.Phase.Starting ->
-            if (TunnelState.vpnPrepared) "Finding the fastest server\u2026"
-            else "Waiting for VPN permission\u2026"
+            when {
+                TunnelState.reconnectAttempt > 0 ->
+                    "Reconnecting (attempt ${TunnelState.reconnectAttempt}/3)\u2026"
+                TunnelState.vpnPrepared -> "Finding the fastest server\u2026"
+                else -> "Waiting for VPN permission\u2026"
+            }
         TunnelState.Phase.Stopping -> "Closing the tunnel\u2026"
         else -> "Tap the shield to connect"
     }
@@ -667,6 +671,23 @@ private fun DiagnosticsSheet(onDismiss: () -> Unit) {
                     "Last error: " + TunnelState.lastError,
                     color = Warn, fontSize = 11.sp, maxLines = 3, overflow = TextOverflow.Ellipsis
                 )
+            }
+
+            // debug builds only: exercise the unexpected-exit auto-reconnect path
+            val ctx = LocalContext.current
+            val debuggable = remember {
+                (ctx.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+            }
+            if (debuggable) {
+                Spacer(Modifier.height(6.dp))
+                TextButton(onClick = {
+                    ctx.startForegroundService(
+                        Intent(ctx, TunnelService::class.java)
+                            .setAction(TunnelService.ACTION_DEBUG_DROP)
+                    )
+                }) {
+                    Text("Simulate engine crash (debug)", color = Warn, fontSize = 12.sp)
+                }
             }
 
             Spacer(Modifier.height(16.dp))

@@ -44,6 +44,7 @@ class TunnelService : VpnService(), PsiphonProvider {
         const val ACTION_START  = "com.tunnelwind.app.START"
         const val ACTION_STOP   = "com.tunnelwind.app.STOP"
         const val ACTION_REGION = "com.tunnelwind.app.REGION"
+        const val ACTION_DEBUG_DROP = "com.tunnelwind.app.DEBUG_DROP"
 
         const val clientVersion = "100"
         var tunFdFd: Int = -1
@@ -80,6 +81,14 @@ class TunnelService : VpnService(), PsiphonProvider {
     // tun subnet chosen at establish time (see selectTunNet)
     @Volatile private var tunNet = TunNet("10.0.0.1", "10.0.0.0", 8, "10.0.0.2")
 
+    // ---- reliability: auto-reconnect + network monitoring
+    private var reconnectJob: kotlinx.coroutines.Job? = null
+    private var reconnectAttempts = 0
+    private val maxReconnects = 3
+    @Volatile private var connectStartedAt: Long = 0L
+    @Volatile private var lastNetworkReset: Long = 0L
+    private var networkCallback: android.net.ConnectivityManager.NetworkCallback? = null
+
     override fun onCreate() {
         super.onCreate()
         AppContextHolder.forceInit(applicationContext)
@@ -91,8 +100,22 @@ class TunnelService : VpnService(), PsiphonProvider {
         // doing that made a manual DISCONNECT silently reconnect.
         val action = intent?.action
         return when (action) {
-            ACTION_START  -> { userStopped = false; startFrontend(); startTunnel(); START_STICKY }
+            ACTION_START  -> {
+                userStopped = false
+                reconnectAttempts = 0
+                TunnelState.update { reconnectAttempt = 0 }
+                startFrontend()
+                startTunnel()
+                START_STICKY
+            }
             ACTION_STOP   -> { userStopped = true;  stopTunnelInternal()      ; START_NOT_STICKY }
+            // debug-only: simulate an engine crash (no userStopped) to exercise
+            // the unexpected-exit auto-reconnect path
+            ACTION_DEBUG_DROP -> {
+                TunnelState.log("[debug] forcing engine exit")
+                scope.launch { try { Psi.stop() } catch (_: Throwable) { } }
+                START_STICKY
+            }
             ACTION_REGION -> { restartWithNewRegion()                        ; START_STICKY }
             null -> {
                 if (userStopped) {
@@ -138,6 +161,8 @@ class TunnelService : VpnService(), PsiphonProvider {
             phase = TunnelState.Phase.Starting
         }
         TunnelState.log("starting VPN service (direct Go binding)...")
+        connectStartedAt = System.currentTimeMillis()
+        startNetworkMonitor()
 
         scope.launch {
             try {
@@ -168,6 +193,12 @@ class TunnelService : VpnService(), PsiphonProvider {
                 // calls bindToDevice(fd) on each of its sockets and we respond with
                 // VpnService.protect(fd), keeping its dials OUTSIDE our tun. Without
                 // it the engine deadlocks dialing through its own tunnel.
+                //
+                // Kill switch: drop tun traffic from the start so nothing leaks
+                // outside the tunnel while the controller is still dialing. The
+                // engine un-drops it once a tunnel is established (see "Tunnels").
+                try { Psi.dropPacketTunnelTraffic(true) } catch (_: Throwable) { }
+
                 Psi.start(
                     buildConfig(fd),
                     embeddedEntries ?: "",   // embeddedServerEntryList
@@ -356,12 +387,102 @@ class TunnelService : VpnService(), PsiphonProvider {
     }
 
     private fun stopTunnelInternal() {
-        TunnelState.update { phase = TunnelState.Phase.Stopping }
+        reconnectJob?.cancel()
+        reconnectJob = null
+        reconnectAttempts = 0
+        TunnelState.update { phase = TunnelState.Phase.Stopping; reconnectAttempt = 0 }
         TunnelState.log("stopping...")
         scope.launch {
+            // block tun traffic while the engine shuts down (no leaks)
+            try { Psi.dropPacketTunnelTraffic(true) } catch (_: Throwable) { }
             stopEngineWithTimeout()
             withContext(Dispatchers.Main) { teardown() }
         }
+    }
+
+    /**
+     * The engine exited without us asking (fatal dial error, killed controller,
+     * network teardown...). Retry a few times with a short backoff before giving
+     * up and restoring the phone's normal connectivity.
+     */
+    private fun scheduleAutoReconnect() {
+        if (reconnectJob?.isActive == true) return
+
+        if (reconnectAttempts >= maxReconnects) {
+            TunnelState.log("[state] reconnect failed $reconnectAttempts times - stopping")
+            markStopped()
+            TunnelState.update { phase = TunnelState.Phase.Stopped; reconnectAttempt = 0 }
+            teardown()
+            return
+        }
+
+        reconnectAttempts++
+        val attempt = reconnectAttempts
+        val waitMs = 1500L * attempt
+
+        TunnelState.update {
+            phase = TunnelState.Phase.Starting
+            reconnectAttempt = attempt
+        }
+        TunnelState.log("[state] reconnecting (attempt $attempt/$maxReconnects) in ${waitMs / 1000}s")
+
+        reconnectJob = scope.launch {
+            // wait for the dying controller to disappear before starting again
+            stopEngineWithTimeout()
+            withContext(Dispatchers.Main) {
+                releaseTunResources()
+                TunnelState.update { phase = TunnelState.Phase.Stopped }
+            }
+            kotlinx.coroutines.delay(waitMs)
+            if (userStopped) return@launch
+            startTunnel()
+        }
+    }
+
+    /**
+     * Watches the real uplink (VPN transport excluded). On Wi-Fi <-> cellular
+     * switches the engine is told to reset its connections and re-dial, instead
+     * of stalling until the watchdog fires.
+     */
+    private fun startNetworkMonitor() {
+        if (networkCallback != null) return
+        try {
+            val cm = getSystemService(CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+            val request = android.net.NetworkRequest.Builder()
+                .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                .build()
+            val cb = object : android.net.ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: android.net.Network) {
+                    if (!isEngineStarted()) return
+                    val now = System.currentTimeMillis()
+                    // ignore the initial callback fired right after registering
+                    if (now - connectStartedAt < 5000) return
+                    // Wi-Fi and cellular come and go together; reset once per burst
+                    if (now - lastNetworkReset < 3000) return
+                    lastNetworkReset = now
+                    TunnelState.log("[net] uplink changed - resetting engine connections")
+                    upstreamDns = readUpstreamDns()
+                    try { Psi.networkChanged() } catch (_: Throwable) { }
+                }
+                override fun onLost(network: android.net.Network) {
+                    TunnelState.log("[net] uplink lost")
+                }
+            }
+            cm.registerNetworkCallback(request, cb)
+            networkCallback = cb
+        } catch (t: Throwable) {
+            TunnelState.log("[net] monitor unavailable: " + (t.message ?: t.toString()))
+        }
+    }
+
+    private fun stopNetworkMonitor() {
+        val cb = networkCallback ?: return
+        networkCallback = null
+        try {
+            (getSystemService(CONNECTIVITY_SERVICE) as android.net.ConnectivityManager)
+                .unregisterNetworkCallback(cb)
+        } catch (_: Throwable) { }
     }
 
     /**
@@ -383,11 +504,17 @@ class TunnelService : VpnService(), PsiphonProvider {
     }
 
     private fun teardown() {
+        reconnectJob?.cancel()
+        reconnectJob = null
+        reconnectAttempts = 0
+        stopNetworkMonitor()
+        try { Psi.dropPacketTunnelTraffic(false) } catch (_: Throwable) { }
         releaseTunResources()
         TunnelState.update {
             phase = TunnelState.Phase.Stopped
             connectedRegion = null; activeProtocol = null
             httpPort = 0; socksPort = 0; bytesUp = 0; bytesDown = 0
+            reconnectAttempt = 0
         }
         TunnelState.log("disconnected")
         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -433,6 +560,7 @@ class TunnelService : VpnService(), PsiphonProvider {
     }
 
     override fun onDestroy() {
+        stopNetworkMonitor()
         // Last line of defence: never leave a live engine behind a dead service.
         if (isEngineStarted()) {
             try {
@@ -543,8 +671,14 @@ class TunnelService : VpnService(), PsiphonProvider {
                 "Tunnels" -> {
                     val c = data?.optInt("count", 0) ?: 0
                     if (c > 0) {
+                        // tunnel is up: stop dropping traffic and reset the retry budget
+                        try { Psi.dropPacketTunnelTraffic(false) } catch (_: Throwable) { }
+                        reconnectAttempts = 0
+                        TunnelState.update {
+                            phase = TunnelState.Phase.Connected
+                            reconnectAttempt = 0
+                        }
                         TunnelState.log("[state] tunnel up")
-                        TunnelState.update { phase = TunnelState.Phase.Connected }
                     } else if (TunnelState.phase == TunnelState.Phase.Connected) {
                         TunnelState.update { phase = TunnelState.Phase.Starting }
                     }
@@ -576,13 +710,19 @@ class TunnelService : VpnService(), PsiphonProvider {
                 }
                 "Exiting" -> {
                     // the engine controller is shutting down (self-initiated or error)
-                    if (restarting) {
-                        TunnelState.log("[state] engine exiting (applying new settings)")
-                    } else {
-                        TunnelState.log("[state] engine exiting")
-                        markStopped()
-                        TunnelState.update { phase = TunnelState.Phase.Stopped }
-                        teardown()
+                    when {
+                        restarting ->
+                            TunnelState.log("[state] engine exiting (applying new settings)")
+                        userStopped -> {
+                            TunnelState.log("[state] engine exiting")
+                            markStopped()
+                            TunnelState.update { phase = TunnelState.Phase.Stopped }
+                            teardown()
+                        }
+                        else -> {
+                            TunnelState.log("[state] tunnel lost unexpectedly")
+                            scheduleAutoReconnect()
+                        }
                     }
                 }
                 "Info", "Warning" -> {

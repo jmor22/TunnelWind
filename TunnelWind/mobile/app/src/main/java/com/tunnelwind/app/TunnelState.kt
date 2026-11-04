@@ -32,6 +32,9 @@ object TunnelState {
     var vpnPrepared by mutableStateOf(false)
     var lastError by mutableStateOf<String?>(null)
 
+    /** auto-reconnect attempt number (0 = not reconnecting) */
+    var reconnectAttempt by mutableStateOf(0)
+
     var logs by mutableStateOf<List<String>>(emptyList())
 
     /** thread-safe mutation hook; fields are snapshot state, recomposition follows */
