@@ -55,6 +55,8 @@ public static class UpdateService
         using var http = new HttpClient();
         http.Timeout = TimeSpan.FromSeconds(15);
         var json = await http.GetStringAsync(url, ct).ConfigureAwait(false);
+        // tolerate a UTF-8 BOM (some editors/scripts emit one) and surrounding whitespace
+        json = json.TrimStart('\uFEFF', ' ', '\t', '\r', '\n');
         return JsonSerializer.Deserialize<UpdateManifest>(json);
     }
 
@@ -134,9 +136,10 @@ public static class UpdateService
     }
 
     /// <summary>
-    /// Atomically-ish swaps the prepared update ZIP in place of the running app and
-    /// launches it with retry (the first attempt can lose the single-instance mutex
-    /// race against the still-exiting old instance).
+    /// Prepares the swap: extracts the verified package to a temp folder and starts
+    /// a detached helper that waits for this process to exit, copies the files over
+    /// the app folder and relaunches. Windows keeps loaded assemblies locked, so an
+    /// in-place overwrite from the running process can never work.
     /// Call right before Application exit.
     /// </summary>
     public static string ApplyAppSwap()
@@ -146,69 +149,54 @@ public static class UpdateService
             throw new InvalidOperationException("no prepared update package");
         }
 
-        try { File.Delete(OldAppPath); } catch { }
-
-        // running exe may be renamed on Windows
-        File.Move(AppExePath, OldAppPath, overwrite: true);
+        var stagingDir = Path.Combine(Path.GetTempPath(), "TunnelWindUpdate_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(stagingDir);
         try
         {
-            // folder swap: extract all app files overwriting existing ones
-            // (instance ExtractToDirectory throws on existing entries; the static
-            //  ZipFile API has the overwrite flag in .NET 8)
-            System.IO.Compression.ZipFile.ExtractToDirectory(NewPackagePath, AppDirectory, overwriteFiles: true);
+            System.IO.Compression.ZipFile.ExtractToDirectory(NewPackagePath, stagingDir, overwriteFiles: true);
         }
         catch
         {
-            // rollback so we can still recover
-            if (!File.Exists(AppExePath)) File.Move(OldAppPath, AppExePath, overwrite: false);
+            try { Directory.Delete(stagingDir, recursive: true); } catch { }
             throw;
         }
-        finally
-        {
-            try { File.Delete(NewPackagePath); } catch { }
-        }
 
-        LaunchWithRetry();
+        var logPath = Path.Combine(Path.GetTempPath(), "TunnelWindUpdate.log");
+        var scriptPath = Path.Combine(Path.GetTempPath(), "TunnelWindUpdate_" + Guid.NewGuid().ToString("N") + ".ps1");
+        var pid = Environment.ProcessId;
+
+        static string Q(string value) => "'" + value.Replace("'", "''") + "'";
+
+        var script = string.Join(Environment.NewLine, new[]
+        {
+            "$ErrorActionPreference = 'Stop'",
+            "$log = " + Q(logPath),
+            "try {",
+            "  Wait-Process -Id " + pid + " -Timeout 60 -ErrorAction SilentlyContinue",
+            "  Start-Sleep -Milliseconds 600",
+            "  Copy-Item -Path " + Q(Path.Combine(stagingDir, "*")) + " -Destination " + Q(AppDirectory) + " -Recurse -Force",
+            "  Remove-Item -Path " + Q(stagingDir) + " -Recurse -Force -ErrorAction SilentlyContinue",
+            "  Remove-Item -Path " + Q(NewPackagePath) + " -Force -ErrorAction SilentlyContinue",
+            "  Start-Process -FilePath " + Q(AppExePath) + " -WorkingDirectory " + Q(AppDirectory) + " -WindowStyle Normal",
+            "  'ok' | Out-File -FilePath $log -Encoding utf8",
+            "} catch {",
+            "  ($_ | Out-String) | Out-File -FilePath $log -Encoding utf8",
+            "}",
+            "Remove-Item -Path $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue",
+        });
+
+        File.WriteAllText(scriptPath, script, new System.Text.UTF8Encoding(false));
+
+        var psi = new ProcessStartInfo
+        {
+            FileName = "powershell.exe",
+            Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File " + "\"" + scriptPath + "\"",
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        Process.Start(psi);
+
         return AppExePath;
-    }
-
-    private static void LaunchWithRetry(int attempts = 6)
-    {
-        for (int i = 0; i < attempts; i++)
-        {
-            try
-            {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = AppExePath,
-                    UseShellExecute = true,
-                    WorkingDirectory = AppDirectory,
-                };
-                var proc = Process.Start(psi);
-                if (proc != null)
-                {
-                    // confirm it survives startup (mutex race / crash detection)
-                    Thread.Sleep(1200);
-                    proc.Refresh();
-                    if (proc.HasExited)
-                    {
-                        var code = proc.ExitCode;
-                        if (i < attempts - 1) { Thread.Sleep(500); continue; }
-                        throw new InvalidOperationException($"updated app exited immediately (code {code})");
-                    }
-                    return;
-                }
-            }
-            catch (InvalidOperationException)
-            {
-                throw;
-            }
-            catch
-            {
-                if (i == attempts - 1) throw;
-                Thread.Sleep(500);
-            }
-        }
     }
 
     /// <summary>Cleanup pass for the swap leftovers (called at startup).</summary>

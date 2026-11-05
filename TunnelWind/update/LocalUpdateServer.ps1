@@ -26,8 +26,11 @@ while ($true) {
             $stream.Write($resp, 0, $resp.Length)
         } else {
             $bytes = [System.IO.File]::ReadAllBytes($file)
+            $ctype = 'application/octet-stream'
+            if ($file.EndsWith('.json')) { $ctype = 'application/json; charset=utf-8' }
+            Write-Host ("GET /" + $path + " -> 200 (" + $bytes.Length + " bytes)")
             $header = [System.Text.Encoding]::ASCII.GetBytes(
-                "HTTP/1.0 200 OK`r`nContent-Type: application/octet-stream`r`nContent-Length: $($bytes.Length)`r`nConnection: close`r`n`r`n")
+                "HTTP/1.0 200 OK`r`nContent-Type: $ctype`r`nContent-Length: $($bytes.Length)`r`nConnection: close`r`n`r`n")
             $stream.Write($header, 0, $header.Length)
             $stream.Write($bytes, 0, $bytes.Length)
         }

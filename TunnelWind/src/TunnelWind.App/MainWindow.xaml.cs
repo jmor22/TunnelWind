@@ -92,6 +92,11 @@ public partial class MainWindow : Window
 
         Loaded += async (_, _) =>
         {
+            // a relaunch from the updater helper can inherit a hidden/minimized
+            // show-state; make sure the window is actually visible
+            if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+            Activate();
+
             VersionText.Text = "v" + Identity.AppVersion;
 
             SystemProxy.EnsureStaleClear(_settings.LocalHttpProxyPort > 0 ? _settings.LocalHttpProxyPort : 8080);
@@ -790,7 +795,16 @@ public partial class MainWindow : Window
         {
             if (IoFile.Exists(AppIconPath))
             {
-                Icon = new System.Windows.Media.Imaging.BitmapImage(new Uri(AppIconPath));
+                // OnLoad: read the file and release the handle, otherwise the file
+                // stays locked and the self-updater cannot overwrite it during the
+                // folder swap.
+                var image = new System.Windows.Media.Imaging.BitmapImage();
+                image.BeginInit();
+                image.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                image.UriSource = new Uri(AppIconPath);
+                image.EndInit();
+                image.Freeze();
+                Icon = image;
             }
         }
         catch { }
